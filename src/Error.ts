@@ -53,6 +53,12 @@ export class MigrationChecksumDrift extends Schema.TaggedError<MigrationChecksum
   { migrationId: Schema.Number, expected: Schema.String, actual: Schema.String },
 ) {}
 
+/** A published manifest's top-level fingerprint does not match its contents. */
+export class ManifestFingerprintDrift extends Schema.TaggedError<ManifestFingerprintDrift>()(
+  "ManifestFingerprintDrift",
+  { expected: Schema.String, actual: Schema.String },
+) {}
+
 /** A migration has no implementation for the active provider dialect. */
 export class MissingProviderMigration extends Schema.TaggedError<MissingProviderMigration>()(
   "MissingProviderMigration",
@@ -124,6 +130,7 @@ export type CapsuleError =
   | MigrationHistoryReordered
   | MigrationNameDrift
   | MigrationChecksumDrift
+  | ManifestFingerprintDrift
   | MissingProviderMigration
   | UnsupportedCapability
   | ProviderMismatch

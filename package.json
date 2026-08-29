@@ -43,6 +43,10 @@
       "types": "./dist/Migration.d.mts",
       "import": "./dist/Migration.mjs"
     },
+    "./Manifest": {
+      "types": "./dist/Manifest.d.mts",
+      "import": "./dist/Manifest.mjs"
+    },
     "./Provider": {
       "types": "./dist/Provider.d.mts",
       "import": "./dist/Provider.mjs"

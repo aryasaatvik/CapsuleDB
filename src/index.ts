@@ -6,6 +6,7 @@ export const VERSION = packageJson.version;
 export * from "./Capsule.ts";
 export * from "./Error.ts";
 export * from "./Migration.ts";
+export * from "./Manifest.ts";
 export * from "./Provider.ts";
 export * from "./Readiness.ts";
 export * from "./Registry.ts";

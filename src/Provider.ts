@@ -11,6 +11,9 @@ export const ProviderDialect = Schema.TaggedUnion({
 
 export type ProviderDialect = typeof ProviderDialect.Type;
 
+/** Stable runtime keys used by provider implementation maps and manifests. */
+export const providerDialectTags = ["Sqlite", "Postgres", "D1"] as const;
+
 /**
  * A provider that can run ordinary transactional migrations.
  *
