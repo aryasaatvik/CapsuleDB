@@ -1,0 +1,20 @@
+{
+  "runtime": {
+    "effectSqlD1": "4.0.0-rc.112",
+    "miniflare": "3.20250718.3",
+    "workerd": "1.20250718.0"
+  },
+  "constraints": {
+    "maxSqlStatementBytes": 100000,
+    "maxBoundParameters": 100,
+    "maxQueryDurationMs": 30000,
+    "maxColumnsPerTable": 100,
+    "maxRowBytes": 2000000
+  },
+  "batchPolicy": {
+    "statementCount": "bounded by the host migration profile",
+    "claimMustBeFirst": true,
+    "source": "https://developers.cloudflare.com/d1/platform/limits/"
+  },
+  "rationale": "Cloudflare documents per-statement SQL, parameter, row, and duration limits for statements inside db.batch(). It does not publish a batch statement-count limit on the referenced page, so CapsuleDB treats batch size as an explicit bounded profile rather than inventing a provider maximum."
+}
