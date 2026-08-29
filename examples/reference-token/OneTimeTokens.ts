@@ -63,6 +63,44 @@ interface TokenRow {
   readonly revoked_at: string | null;
 }
 
+const ISO_TIMESTAMP_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+/** Parse only full ISO-8601 timestamps with an explicit timezone. */
+const parseIsoTimestamp = (input: unknown): number | undefined => {
+  if (typeof input !== "string") return undefined;
+  const match = ISO_TIMESTAMP_PATTERN.exec(input);
+  if (match === null) return undefined;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const timezone = match[7];
+  if (
+    timezone === undefined ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > new Date(Date.UTC(year, month, 0)).getUTCDate() ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59
+  ) {
+    return undefined;
+  }
+  if (timezone !== "Z") {
+    const offsetHour = Number(timezone.slice(1, 3));
+    const offsetMinute = Number(timezone.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return undefined;
+  }
+
+  const timestamp = Date.parse(input);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+};
+
 const decodeToken = (input: unknown): Effect.Effect<Token, InvalidToken> =>
   Effect.try({
     try: () => Schema.decodeUnknownSync(Token)(input),
@@ -89,15 +127,16 @@ const generateToken = (): Token =>
 
 const validateExpiry = (input: unknown): Effect.Effect<string, InvalidToken> =>
   Effect.gen(function* () {
-    if (typeof input !== "string" || !Number.isFinite(Date.parse(input))) {
+    const timestamp = parseIsoTimestamp(input);
+    if (timestamp === undefined) {
       return yield* Effect.fail(
         new InvalidToken({ reason: "expiresAt must be an ISO-8601 timestamp" }),
       );
     }
-    if (Date.parse(input) <= Date.now()) {
+    if (timestamp <= Date.now()) {
       return yield* Effect.fail(new InvalidToken({ reason: "expiresAt must be in the future" }));
     }
-    return input;
+    return new Date(timestamp).toISOString();
   });
 
 const readToken = (
@@ -112,15 +151,15 @@ const readToken = (
 
 const stateOf = (row: TokenRow): Effect.Effect<TokenState, InvalidToken> =>
   Effect.gen(function* () {
-    if (!Number.isFinite(Date.parse(row.expires_at))) {
+    const expiresAt = parseIsoTimestamp(row.expires_at);
+    if (expiresAt === undefined) {
       return yield* Effect.fail(new InvalidToken({ reason: "stored token expiry is invalid" }));
     }
     if (row.revoked_at !== null)
       return { _tag: "Revoked", expiresAt: row.expires_at, revokedAt: row.revoked_at };
     if (row.consumed_at !== null)
       return { _tag: "Consumed", expiresAt: row.expires_at, consumedAt: row.consumed_at };
-    if (Date.parse(row.expires_at) <= Date.now())
-      return { _tag: "Expired", expiresAt: row.expires_at };
+    if (expiresAt <= Date.now()) return { _tag: "Expired", expiresAt: row.expires_at };
     return { _tag: "Pending", expiresAt: row.expires_at };
   });
 
@@ -162,10 +201,8 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
               new TokenAlreadyConsumed({ token: "redacted", consumedAt: row.consumed_at }),
             );
           }
-          if (
-            !Number.isFinite(Date.parse(row.expires_at)) ||
-            Date.parse(row.expires_at) <= Date.now()
-          ) {
+          const expiresAt = parseIsoTimestamp(row.expires_at);
+          if (expiresAt === undefined || expiresAt <= Date.now()) {
             return yield* Effect.fail(new TokenNotFound({ token: "redacted" }));
           }
 

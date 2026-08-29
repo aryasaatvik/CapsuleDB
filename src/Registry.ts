@@ -207,6 +207,48 @@ const readLedgerRows = (
   sql<LedgerRow>`SELECT capsule_id, migration_id, name, checksum, applied_at
     FROM ${sql(LEDGER_TABLE)} ORDER BY capsule_id, migration_id`;
 
+const expectedMigrationCount = (registry: Registry): number =>
+  registry.capsules.reduce((count, capsule) => count + capsule.migrations.length, 0);
+
+/**
+ * A metadata fingerprint is only meaningful when every expected ledger row is
+ * present and still agrees with the current manifest. This check deliberately
+ * stays on the private ledger representation; callers only receive readiness.
+ */
+const hasCompleteLedger = (
+  registry: Registry,
+  registryPlan: RegistryPlan,
+  ledgerRows: ReadonlyArray<LedgerRow>,
+): boolean => {
+  if (ledgerRows.length !== expectedMigrationCount(registry)) return false;
+
+  for (const capsule of registry.capsules) {
+    const manifestCapsule = registryPlan.manifest.capsules.find(
+      (candidate) => candidate.id === capsule.id,
+    );
+    if (manifestCapsule === undefined) return false;
+    for (const migration of capsule.migrations) {
+      const manifestMigration = manifestCapsule.migrations.find(
+        (candidate) => candidate.id === migration.id,
+      );
+      const ledgerRow = ledgerRows.find(
+        (candidate) =>
+          candidate.capsule_id === capsule.id && candidate.migration_id === migration.id,
+      );
+      if (
+        manifestMigration === undefined ||
+        ledgerRow === undefined ||
+        ledgerRow.name !== migration.name ||
+        ledgerRow.checksum !== manifestMigration.checksum ||
+        ledgerRow.applied_at.length === 0
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+};
+
 const executeStaticBody = (
   sql: SqlClient.SqlClient,
   body: MigrationBody,
@@ -306,7 +348,13 @@ export const status = (
       };
       return pending;
     }
-    if (metadata.fingerprint === registryPlan.manifest.fingerprint) {
+    const ledgerRows = yield* readLedgerRows(sql);
+    const expectedProvider = providerDialectName(registry.provider.dialect);
+    if (
+      metadata.fingerprint === registryPlan.manifest.fingerprint &&
+      metadata.provider === expectedProvider &&
+      hasCompleteLedger(registry, registryPlan, ledgerRows)
+    ) {
       const ready: Readiness = {
         _tag: "Ready",
         fingerprint: metadata.fingerprint,
@@ -366,17 +414,15 @@ export const prepare = (
     }
 
     const metadata = yield* readMetadata(sql);
-    const expectedMigrationCount = registry.capsules.reduce(
-      (count, capsule) => count + capsule.migrations.length,
-      0,
-    );
+    const expectedProvider = providerDialectName(registry.provider.dialect);
     if (
       metadata?.fingerprint === registryPlan.manifest.fingerprint &&
-      ledgerRows.length === expectedMigrationCount
+      metadata.provider === expectedProvider &&
+      hasCompleteLedger(registry, registryPlan, ledgerRows)
     ) {
       return makeReadinessReceipt(
         metadata.fingerprint,
-        metadata.provider,
+        expectedProvider,
         registryPlan.registry.capsules.length,
       );
     }
@@ -430,7 +476,12 @@ export const assertRegistryReady = (
     const registryPlan = yield* plan(registry);
     const current = yield* status(registry);
     if (current._tag !== "Ready") {
-      const actual = current._tag === "Stale" ? current.actualFingerprint : "";
+      const actual =
+        current._tag === "Pending"
+          ? ""
+          : current.actualFingerprint !== registryPlan.manifest.fingerprint
+            ? current.actualFingerprint
+            : "provider-mismatch";
       yield* assertReady(registryPlan.manifest.fingerprint, actual);
     }
     return makeReadinessReceipt(

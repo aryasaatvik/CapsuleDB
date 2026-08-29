@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { makeCapsule } from "../../src/Capsule.ts";
 import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";

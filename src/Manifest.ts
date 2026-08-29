@@ -162,6 +162,15 @@ const canonicalMigration = (
     providers: providers.map(canonicalBody),
   });
 
+const canonicalManifestMigration = (capsuleId: string, migration: ManifestMigration): string =>
+  JSON.stringify({
+    capsuleId,
+    migrationId: migration.id,
+    name: migration.name,
+    risk: migration.risk,
+    providers: migration.providers.map(canonicalBody),
+  });
+
 const canonicalManifest = (version: 1, capsules: ReadonlyArray<ManifestCapsule>): string =>
   JSON.stringify({
     version,
@@ -356,6 +365,7 @@ const validatePublishedStructure = (manifest: Manifest): Effect.Effect<void, Man
       }
 
       let previousId = 0;
+      const seenMigrationIds = new Set<number>();
       for (
         let migrationIndex = 0;
         migrationIndex < capsule.migrations.length;
@@ -363,6 +373,10 @@ const validatePublishedStructure = (manifest: Manifest): Effect.Effect<void, Man
       ) {
         const migration = capsule.migrations[migrationIndex];
         if (migration === undefined) continue;
+        if (seenMigrationIds.has(migration.id)) {
+          return yield* Effect.fail(new DuplicateMigrationId({ migrationId: migration.id }));
+        }
+        seenMigrationIds.add(migration.id);
         if (migration.id <= previousId) {
           return yield* Effect.fail(
             new MigrationHistoryReordered({
@@ -412,6 +426,20 @@ const validatePublishedStructure = (manifest: Manifest): Effect.Effect<void, Man
 const verifyManifest = (manifest: Manifest): Effect.Effect<Manifest, ManifestError> =>
   Effect.gen(function* () {
     yield* validatePublishedStructure(manifest);
+    for (const capsule of manifest.capsules) {
+      for (const migration of capsule.migrations) {
+        const actual = yield* sha256(canonicalManifestMigration(capsule.id, migration));
+        if (actual !== migration.checksum) {
+          return yield* Effect.fail(
+            new MigrationChecksumDrift({
+              expected: actual,
+              actual: migration.checksum,
+              migrationId: migration.id,
+            }),
+          );
+        }
+      }
+    }
     const actual = yield* sha256(canonicalManifest(manifest.version, manifest.capsules));
     if (actual !== manifest.fingerprint) {
       return yield* Effect.fail(

@@ -7,7 +7,7 @@ import { makeCapsule } from "../../src/Capsule.ts";
 import { decodeManifest } from "../../src/Manifest.ts";
 import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
 import { BunSqliteProfile } from "../../src/Provider.ts";
-import { makeRegistry, plan, prepare, status } from "../../src/Registry.ts";
+import { assertRegistryReady, makeRegistry, plan, prepare, status } from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import { OneTimeTokens } from "../../examples/reference-token/OneTimeTokens.ts";
 import referenceManifest from "../fixtures/reference-token-manifest.json" with { type: "json" };
@@ -54,6 +54,8 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
         );
 
         const service = yield* Effect.service(OneTimeTokens);
+        const invalidExpiry = yield* service.issue("01/01/2099").pipe(Effect.flip);
+        assert.strictEqual(invalidExpiry._tag, "InvalidToken");
         const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
         const consumed = yield* service.consume(issued.token);
         assert.strictEqual(consumed.token, issued.token);
@@ -69,6 +71,30 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
         assert.strictEqual(ready._tag, "Ready");
         const secondReceipt = yield* prepare(registry);
         assert.deepStrictEqual(secondReceipt, firstReceipt);
+      }),
+    ),
+  );
+
+  it.effect("does not trust metadata when the migration ledger is incomplete", () =>
+    withSqlite(
+      Effect.gen(function* () {
+        const capsule = yield* referenceTokenCapsule;
+        const registry = yield* makeRegistry({
+          provider: BunSqliteProfile,
+          capsules: [capsule],
+        });
+        yield* prepare(registry);
+        const sql = yield* Effect.service(SqlClient.SqlClient);
+
+        yield* sql.unsafe(
+          `DELETE FROM "capsuledb_registry_ledger"
+           WHERE capsule_id = 'reference.tokens' AND migration_id = 2`,
+        );
+
+        const current = yield* status(registry);
+        assert.strictEqual(current._tag, "Stale");
+        const readinessError = yield* assertRegistryReady(registry).pipe(Effect.flip);
+        assert.strictEqual(readinessError._tag, "NotReady");
       }),
     ),
   );

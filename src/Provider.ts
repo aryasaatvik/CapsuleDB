@@ -14,36 +14,31 @@ export type ProviderDialect = typeof ProviderDialect.Type;
 /** Stable runtime keys used by provider implementation maps and manifests. */
 export const providerDialectTags = ["Sqlite", "Postgres", "D1"] as const;
 
-/**
- * A provider that can run ordinary transactional migrations.
- *
- * `streaming` is explicit because Bun SQLite currently has no streaming
- * implementation even though its migration execution is transactional.
- */
-const TransactionalCapabilities = Schema.TaggedStruct("Transactional", {
-  supportsTransactions: Schema.Literal(true),
-  supportsSavepoints: Schema.Literal(true),
-  supportsStreaming: Schema.Boolean,
-  supportsEffectMigrations: Schema.Literal(true),
-});
-
-/**
- * D1's bounded `batch` primitive is atomic but is not an interactive
- * transaction, savepoint, stream, or arbitrary Effect-migration capability.
- */
-const AtomicBatchCapabilities = Schema.TaggedStruct("AtomicBatch", {
-  supportsTransactions: Schema.Literal(false),
-  supportsSavepoints: Schema.Literal(false),
-  supportsStreaming: Schema.Literal(false),
-  supportsEffectMigrations: Schema.Literal(false),
-  maxStatements: Schema.Int.check(Schema.isGreaterThan(0)),
-});
-
 /** Provider execution capabilities, kept separate from the SQL dialect. */
-export const ProviderCapabilities = Schema.Union([
-  TransactionalCapabilities,
-  AtomicBatchCapabilities,
-]);
+export const ProviderCapabilities = Schema.TaggedUnion({
+  /**
+   * A provider that can run ordinary transactional migrations. `streaming`
+   * is explicit because Bun SQLite currently has no streaming implementation
+   * even though its migration execution is transactional.
+   */
+  Transactional: {
+    supportsTransactions: Schema.Literal(true),
+    supportsSavepoints: Schema.Literal(true),
+    supportsStreaming: Schema.Boolean,
+    supportsEffectMigrations: Schema.Literal(true),
+  },
+  /**
+   * D1's bounded `batch` primitive is atomic but is not an interactive
+   * transaction, savepoint, stream, or arbitrary Effect-migration capability.
+   */
+  AtomicBatch: {
+    supportsTransactions: Schema.Literal(false),
+    supportsSavepoints: Schema.Literal(false),
+    supportsStreaming: Schema.Literal(false),
+    supportsEffectMigrations: Schema.Literal(false),
+    maxStatements: Schema.Int.check(Schema.isGreaterThan(0)),
+  },
+});
 
 export type ProviderCapabilities = typeof ProviderCapabilities.Type;
 
