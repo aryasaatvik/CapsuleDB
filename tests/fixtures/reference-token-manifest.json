@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "fingerprint": "ddaafe9815d07596379bf3219f1d4c6e9a66982f4ed7876d6c37a05390e63d48",
+  "capsules": [
+    {
+      "id": "reference.tokens",
+      "namespace": "capsule_reference_2e_tokens",
+      "migrations": [
+        {
+          "id": 1,
+          "name": "create-tokens",
+          "risk": "additive",
+          "checksum": "1fbbaa13d3cc57955572e6035a284de7e0db054c1ebfd84b6131164e1b417105",
+          "providers": [
+            {
+              "_tag": "Sql",
+              "dialect": "Sqlite",
+              "source": "CREATE TABLE \"capsule_reference_2e_tokens\" (\n          token_hash TEXT PRIMARY KEY NOT NULL,\n          expires_at TEXT NOT NULL,\n          consumed_at TEXT\n        )",
+              "statements": [
+                "CREATE TABLE \"capsule_reference_2e_tokens\" (\n            token_hash TEXT PRIMARY KEY NOT NULL,\n            expires_at TEXT NOT NULL,\n            consumed_at TEXT\n          )"
+              ]
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "name": "add-token-audit",
+          "risk": "additive",
+          "checksum": "48578a6a0501ab7ebc3291f1d36e2be1b0640905cad2b266185e7507aad9d3aa",
+          "providers": [
+            {
+              "_tag": "Sql",
+              "dialect": "Sqlite",
+              "source": "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n          audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n          token_hash TEXT NOT NULL,\n          consumed_at TEXT NOT NULL\n        )",
+              "statements": [
+                "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n            token_hash TEXT NOT NULL,\n            consumed_at TEXT NOT NULL\n          )",
+                "ALTER TABLE \"capsule_reference_2e_tokens\" ADD COLUMN revoked_at TEXT",
+                "UPDATE \"capsule_reference_2e_tokens\" SET revoked_at = NULL WHERE revoked_at IS NULL"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

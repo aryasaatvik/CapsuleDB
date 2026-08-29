@@ -10,3 +10,4 @@ export * from "./Manifest.ts";
 export * from "./Provider.ts";
 export * from "./Readiness.ts";
 export * from "./Registry.ts";
+export * from "./SqliteBun.ts";
