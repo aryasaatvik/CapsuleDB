@@ -31,6 +31,30 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
     },
+    "./Capsule": {
+      "types": "./dist/Capsule.d.mts",
+      "import": "./dist/Capsule.mjs"
+    },
+    "./Error": {
+      "types": "./dist/Error.d.mts",
+      "import": "./dist/Error.mjs"
+    },
+    "./Migration": {
+      "types": "./dist/Migration.d.mts",
+      "import": "./dist/Migration.mjs"
+    },
+    "./Provider": {
+      "types": "./dist/Provider.d.mts",
+      "import": "./dist/Provider.mjs"
+    },
+    "./Readiness": {
+      "types": "./dist/Readiness.d.mts",
+      "import": "./dist/Readiness.mjs"
+    },
+    "./Registry": {
+      "types": "./dist/Registry.d.mts",
+      "import": "./dist/Registry.mjs"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -41,7 +65,7 @@
     "lint": "oxlint --deny-warnings src tests tsdown.config.ts vitest.config.ts vitest.setup.ts oxlint.config.ts",
     "test": "vitest run --exclude tests/artifact/**/*.test.ts",
     "test:artifact": "bun run build && vitest run tests/artifact",
-    "test:types": "tstyche --target '>=5.9'",
+    "test:types": "tstyche --config tstyche.config.json --target '>=5.9'",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
