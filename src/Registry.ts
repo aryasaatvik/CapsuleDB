@@ -114,6 +114,29 @@ export const makeRegistry = (options: RegistryOptions): Effect.Effect<Registry, 
         }
         seenMigrationIds.push(migration.id);
 
+        // Migration SQL is package-owned, but a registry still knows every
+        // canonical physical namespace in its composition. Reject a source
+        // that names another registered capsule's namespace before any client
+        // is touched. Runtime service layers remain opaque public contracts;
+        // they do not receive peer capsule table handles from this package.
+        for (const body of Object.values(migration.providers)) {
+          if (body === undefined) continue;
+          const sources = body._tag === "Sql" ? [body.source, ...body.statements] : [body.source];
+          const peer = options.capsules.find(
+            (candidate) =>
+              candidate.id !== capsule.id &&
+              sources.some((source) => source.includes(candidate.namespace)),
+          );
+          if (peer !== undefined) {
+            return yield* Effect.fail(
+              new InvalidDefinition({
+                subject: `capsule ${capsule.id} migration ${migration.id}`,
+                reason: `migration source references peer capsule namespace ${peer.namespace}`,
+              }),
+            );
+          }
+        }
+
         const implementation = migration.providers[provider.dialect._tag];
         if (implementation === undefined) {
           return yield* Effect.fail(

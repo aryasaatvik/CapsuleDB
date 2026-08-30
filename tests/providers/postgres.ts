@@ -34,3 +34,8 @@ export const withPostgres = <A, E>(
       ),
     (container: StartedPostgreSqlContainer) => Effect.promise(() => container.stop()),
   );
+
+/** Adapt the disposable PostgreSQL fixture to the shared generic SQL suite. */
+export const withPostgresSql = <A, E>(
+  effect: (client: SqlClient.SqlClient) => Effect.Effect<A, E>,
+): Effect.Effect<A, E | SqlError> => withPostgres((client) => effect(client));

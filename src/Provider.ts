@@ -162,3 +162,26 @@ export const D1Profile: ProviderProfile = {
     maxBoundParameters: 100,
   },
 };
+
+/** The profiles used by the provider conformance matrix. */
+export const providerProfiles = Object.freeze([
+  BunSqliteProfile,
+  LibsqlProfile,
+  PostgresProfile,
+  D1Profile,
+] as const);
+
+/**
+ * A machine-readable view of the canonical provider capabilities. The report
+ * is derived from the profiles above so tests and documentation cannot drift
+ * from the runtime validation model.
+ */
+export const providerCapabilityMatrix = Object.freeze(
+  providerProfiles.map((profile) => ({
+    dialect: providerDialectName(profile.dialect),
+    ...profile.capabilities,
+  })),
+);
+
+/** Naming aliases for callers that use the provider's database spelling. */
+export const LibSQLProfile = LibsqlProfile;
