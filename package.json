@@ -47,6 +47,10 @@
       "types": "./dist/Manifest.d.mts",
       "import": "./dist/Manifest.mjs"
     },
+    "./Pg": {
+      "types": "./dist/Pg.d.mts",
+      "import": "./dist/Pg.mjs"
+    },
     "./Libsql": {
       "types": "./dist/Libsql.d.mts",
       "import": "./dist/Libsql.mjs"
@@ -84,10 +88,13 @@
     "@cloudflare/workers-types": "5.20260822.1",
     "@effect/sql-d1": "4.0.0-rc.112",
     "@effect/sql-libsql": "4.0.0-rc.112",
+    "@effect/sql-pg": "4.0.0-rc.112",
     "@effect/sql-sqlite-bun": "4.0.0-rc.112",
     "@effect/vitest": "4.0.0-rc.112",
     "@libsql/client": "0.17.4",
+    "@testcontainers/postgresql": "12.1.0",
     "@types/bun": "1.4.0",
+    "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "effect": "4.0.0-rc.112",
     "miniflare": "3.20250718.3",
     "oxfmt": "0.65.0",

@@ -644,6 +644,17 @@ const preparePostgres = (
     }),
   );
 
+const initializePostgres = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError> =>
+  sql.withTransaction(
+    Effect.gen(function* () {
+      // The advisory lock must cover first-use DDL as well as migration DDL;
+      // PostgreSQL can still race two CREATE TABLE IF NOT EXISTS statements
+      // while registering the table's row type.
+      yield* sql`SELECT pg_advisory_xact_lock(${45_120_617})`;
+      yield* ensureRuntimeTables(sql);
+    }),
+  );
+
 /**
  * Apply all pending migrations using the host's existing SQL client.
  *
@@ -658,7 +669,11 @@ export const prepare = (
   Effect.gen(function* () {
     const registryPlan = yield* plan(registry);
     const sql = yield* Effect.service(SqlClient.SqlClient);
-    yield* ensureRuntimeTables(sql);
+    if (registry.provider.dialect._tag === "Postgres") {
+      yield* initializePostgres(sql);
+    } else {
+      yield* ensureRuntimeTables(sql);
+    }
 
     const ledgerRows = yield* readLedgerRows(sql);
     yield* validateExistingLedger(registry, registryPlan, ledgerRows);

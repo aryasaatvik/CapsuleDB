@@ -10,6 +10,7 @@ export default defineConfig({
     Migration: "src/Migration.ts",
     Libsql: "src/Libsql.ts",
     Manifest: "src/Manifest.ts",
+    Pg: "src/Pg.ts",
     Provider: "src/Provider.ts",
     Readiness: "src/Readiness.ts",
     Registry: "src/Registry.ts",
