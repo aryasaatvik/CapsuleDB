@@ -1,6 +1,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
+import type * as Statement from "effect/unstable/sql/Statement";
 
 import { InvalidToken, TokenAlreadyConsumed, TokenNotFound } from "../../src/Error.ts";
 
@@ -62,6 +63,16 @@ interface TokenRow {
   readonly consumed_at: string | null;
   readonly revoked_at: string | null;
 }
+
+/** The only extra client operation used by the D1 domain path. */
+interface AtomicBatchSql extends SqlClient.SqlClient {
+  readonly batch: (
+    statements: ReadonlyArray<Statement.Statement<unknown>>,
+  ) => Effect.Effect<ReadonlyArray<unknown>, SqlError>;
+}
+
+const isAtomicBatchSql = (sql: SqlClient.SqlClient): sql is AtomicBatchSql =>
+  typeof (sql as unknown as { readonly batch?: unknown }).batch === "function";
 
 const ISO_TIMESTAMP_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -190,6 +201,34 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
       const token = yield* decodeToken(input);
       const tokenHash = yield* digest(token);
       const consumedAt = new Date().toISOString();
+
+      if (isAtomicBatchSql(sql)) {
+        const updatedStatement = sql<TokenRow>`UPDATE ${sql(TOKEN_TABLE)}
+          SET consumed_at = ${consumedAt}
+          WHERE token_hash = ${tokenHash}
+            AND consumed_at IS NULL
+            AND revoked_at IS NULL
+            AND expires_at > ${new Date().toISOString()}
+          RETURNING expires_at, consumed_at, revoked_at`;
+        const auditStatement = sql`INSERT INTO ${sql(AUDIT_TABLE)} (token_hash, consumed_at)
+          SELECT ${tokenHash}, ${consumedAt}
+          WHERE EXISTS (
+            SELECT 1 FROM ${sql(TOKEN_TABLE)}
+            WHERE token_hash = ${tokenHash} AND consumed_at = ${consumedAt}
+          )`;
+        const results = yield* sql.batch([updatedStatement, auditStatement]);
+        const updated = (results[0] ?? []) as ReadonlyArray<TokenRow>;
+        if (updated.length === 0) {
+          const current = yield* readToken(sql, tokenHash);
+          if (current?.consumed_at !== null && current?.consumed_at !== undefined) {
+            return yield* Effect.fail(
+              new TokenAlreadyConsumed({ token: "redacted", consumedAt: current.consumed_at }),
+            );
+          }
+          return yield* Effect.fail(new TokenNotFound({ token: "redacted" }));
+        }
+        return { token, consumedAt };
+      }
 
       return yield* sql.withTransaction(
         Effect.gen(function* () {

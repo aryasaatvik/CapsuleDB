@@ -35,6 +35,10 @@
       "types": "./dist/Capsule.d.mts",
       "import": "./dist/Capsule.mjs"
     },
+    "./D1": {
+      "types": "./dist/D1.d.mts",
+      "import": "./dist/D1.mjs"
+    },
     "./Error": {
       "types": "./dist/Error.d.mts",
       "import": "./dist/Error.mjs"

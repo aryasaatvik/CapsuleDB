@@ -5,6 +5,7 @@ export default defineConfig({
   dts: true,
   entry: {
     Capsule: "src/Capsule.ts",
+    D1: "src/D1.ts",
     Error: "src/Error.ts",
     index: "src/index.ts",
     Migration: "src/Migration.ts",

@@ -4,6 +4,7 @@ import packageJson from "../package.json" with { type: "json" };
 export const VERSION = packageJson.version;
 
 export * from "./Capsule.ts";
+export * from "./D1.ts";
 export * from "./Error.ts";
 export * from "./Migration.ts";
 export * from "./Manifest.ts";

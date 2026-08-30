@@ -38,6 +38,8 @@ export const ProviderCapabilities = Schema.TaggedUnion({
     supportsStreaming: Schema.Literal(false),
     supportsEffectMigrations: Schema.Literal(false),
     maxStatements: Schema.Int.check(Schema.isGreaterThan(0)),
+    maxSqlStatementBytes: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
+    maxBoundParameters: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
   },
 });
 
@@ -156,5 +158,7 @@ export const D1Profile: ProviderProfile = {
     supportsStreaming: false,
     supportsEffectMigrations: false,
     maxStatements: 2,
+    maxSqlStatementBytes: 100_000,
+    maxBoundParameters: 100,
   },
 };

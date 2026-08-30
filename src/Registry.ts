@@ -37,7 +37,7 @@ import {
   type ProviderProfile,
   type ProviderProfileError,
 } from "./Provider.ts";
-import { runD1Migration, type D1BatchClient } from "./internal/d1-migrator.ts";
+import { compileD1Migration, runD1Migration, type D1BatchClient } from "./internal/d1-migrator.ts";
 import {
   LEDGER_TABLE,
   METADATA_TABLE,
@@ -515,6 +515,63 @@ const applyD1 = (
     );
   }).pipe(Effect.withSpan("capsuledb.registry.apply.d1"));
 
+/**
+ * Validate every pending D1 batch before the first migration can mutate the
+ * database. Applying one batch at a time is necessary for D1's atomicity, but
+ * without this pass a later oversized or unsupported migration could leave an
+ * earlier migration committed before preparation failed.
+ */
+const preflightD1Pending = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+  registryPlan: RegistryPlan,
+  ledgerRows: ReadonlyArray<LedgerRow>,
+): Effect.Effect<void, RegistryRuntimeError> =>
+  Effect.gen(function* () {
+    const d1 = sql as D1BatchClient;
+    for (const capsule of registry.capsules) {
+      const manifestCapsule = registryPlan.manifest.capsules.find(
+        (candidate) => candidate.id === capsule.id,
+      );
+      if (manifestCapsule === undefined) {
+        return yield* Effect.fail(
+          new NotReady({
+            expectedFingerprint: registryPlan.manifest.fingerprint,
+            actualFingerprint: "missing-capsule",
+          }),
+        );
+      }
+      for (const migration of capsule.migrations) {
+        const existing = ledgerRows.find(
+          (row) => row.capsule_id === capsule.id && row.migration_id === migration.id,
+        );
+        if (existing !== undefined) continue;
+
+        const manifestMigration = manifestCapsule.migrations.find(
+          (candidate) => candidate.id === migration.id,
+        );
+        if (manifestMigration === undefined) {
+          return yield* Effect.fail(
+            new NotReady({
+              expectedFingerprint: registryPlan.manifest.fingerprint,
+              actualFingerprint: "missing-migration",
+            }),
+          );
+        }
+        const body = yield* migrationBody(registry, migration);
+        yield* compileD1Migration({
+          sql: d1,
+          profile: registry.provider,
+          capsuleId: capsule.id,
+          migrationId: migration.id,
+          name: migration.name,
+          checksum: manifestMigration.checksum,
+          body,
+        });
+      }
+    }
+  });
+
 const applyPending = (
   sql: SqlClient.SqlClient,
   registry: Registry,
@@ -729,6 +786,10 @@ export const prepare = (
           yield* unauthorizedDestructive(capsule, migration, options);
         }
       }
+    }
+
+    if (registry.provider.capabilities._tag === "AtomicBatch") {
+      yield* preflightD1Pending(sql, registry, registryPlan, ledgerRows);
     }
 
     if (registry.provider.dialect._tag === "Postgres") {

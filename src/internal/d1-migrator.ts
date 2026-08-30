@@ -28,16 +28,23 @@ export interface D1Migration {
 const isBatchClient = (sql: SqlClient.SqlClient): sql is D1BatchClient =>
   typeof (sql as unknown as Partial<D1BatchClient>).batch === "function";
 
+const invalidMigration = (options: D1Migration, reason: string): InvalidDefinition =>
+  new InvalidDefinition({
+    subject: `migration ${options.capsuleId}/${options.migrationId}`,
+    reason,
+  });
+
 /**
- * Compile and execute one D1 migration as a single claim-first batch.
- *
- * Every limit is checked before invoking `batch`, and this function never
- * calls `withTransaction`: D1's batch is atomic but has no interactive
- * transaction or savepoint semantics.
+ * Build and validate one complete D1 batch without invoking the provider.
+ * Registry preparation uses this for an all-pending preflight so a later
+ * invalid migration cannot follow an earlier mutation.
  */
-export const runD1Migration = (
+export const compileD1Migration = (
   options: D1Migration,
-): Effect.Effect<void, SqlError | InvalidDefinition | ProviderMismatch> =>
+): Effect.Effect<
+  ReadonlyArray<Statement.Statement<unknown>>,
+  InvalidDefinition | ProviderMismatch
+> =>
   Effect.gen(function* () {
     if (!isBatchClient(options.sql)) {
       return yield* Effect.fail(
@@ -63,10 +70,10 @@ export const runD1Migration = (
 
     if (statements.length > capabilities.maxStatements) {
       return yield* Effect.fail(
-        new InvalidDefinition({
-          subject: `migration ${options.capsuleId}/${options.migrationId}`,
-          reason: `D1 atomic batch has ${statements.length} statements; maximum is ${capabilities.maxStatements}`,
-        }),
+        invalidMigration(
+          options,
+          `D1 atomic batch has ${statements.length} statements; maximum is ${capabilities.maxStatements}`,
+        ),
       );
     }
 
@@ -78,10 +85,10 @@ export const runD1Migration = (
         sqlBytes > capabilities.maxSqlStatementBytes
       ) {
         return yield* Effect.fail(
-          new InvalidDefinition({
-            subject: `migration ${options.capsuleId}/${options.migrationId}`,
-            reason: `D1 SQL statement is ${sqlBytes} bytes; maximum is ${capabilities.maxSqlStatementBytes}`,
-          }),
+          invalidMigration(
+            options,
+            `D1 SQL statement is ${sqlBytes} bytes; maximum is ${capabilities.maxSqlStatementBytes}`,
+          ),
         );
       }
       if (
@@ -89,13 +96,33 @@ export const runD1Migration = (
         parameters.length > capabilities.maxBoundParameters
       ) {
         return yield* Effect.fail(
-          new InvalidDefinition({
-            subject: `migration ${options.capsuleId}/${options.migrationId}`,
-            reason: `D1 SQL statement has ${parameters.length} bound parameters; maximum is ${capabilities.maxBoundParameters}`,
-          }),
+          invalidMigration(
+            options,
+            `D1 SQL statement has ${parameters.length} bound parameters; maximum is ${capabilities.maxBoundParameters}`,
+          ),
         );
       }
     }
 
+    return statements;
+  });
+
+/**
+ * Compile and execute one D1 migration as a single claim-first batch.
+ *
+ * Every limit is checked before invoking `batch`, and this function never
+ * calls `withTransaction`: D1's batch is atomic but has no interactive
+ * transaction or savepoint semantics.
+ */
+export const runD1Migration = (
+  options: D1Migration,
+): Effect.Effect<void, SqlError | InvalidDefinition | ProviderMismatch> =>
+  Effect.gen(function* () {
+    const statements = yield* compileD1Migration(options);
+    if (!isBatchClient(options.sql)) {
+      return yield* Effect.fail(
+        new ProviderMismatch({ dialect: "d1", mode: "missing atomic batch client" }),
+      );
+    }
     yield* options.sql.batch(statements);
   });
