@@ -55,8 +55,8 @@ const providerProfiles = [
   [Pg, postgresProfile, "Postgres"],
   [Libsql, libsqlProfile, "Libsql"],
 ];
-for (const [rootProvider, subpathProvider, dialect] of providerProfiles) {
-  if (rootProvider.profile.dialect._tag !== dialect || subpathProvider.dialect._tag !== dialect) {
+for (const [rootProvider, subpathProvider, provider] of providerProfiles) {
+  if (rootProvider.profile.provider._tag !== provider || subpathProvider.provider._tag !== provider) {
     throw new Error("Packed provider profile mismatch for " + dialect);
   }
 }

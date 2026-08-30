@@ -23,10 +23,7 @@ const migration = await Effect.runPromise(
     name: "create-packed-table",
     risk: "additive",
     providers: {
-      D1: sqlMigrationBody(
-        'CREATE TABLE "packed_table" (value TEXT NOT NULL)',
-        ['CREATE TABLE "packed_table" (value TEXT NOT NULL)'],
-      ),
+      D1: sqlMigrationBody(['CREATE TABLE "packed_table" (value TEXT NOT NULL)']),
     },
   }),
 );
@@ -61,7 +58,7 @@ const service = await Effect.runPromise(
 );
 
 if (VERSION !== "${packageJson.version}") throw new Error("package version mismatch");
-if (D1.profile.dialect._tag !== "D1") throw new Error("D1 profile mismatch");
+if (D1.profile.provider._tag !== "D1") throw new Error("D1 profile mismatch");
 if (registryPlan.manifest.fingerprint !== manifest.fingerprint) throw new Error("manifest mismatch");
 if (artifact.files.length !== 1) throw new Error("artifact projection mismatch");
 if (service.value !== "packed-service") throw new Error("opaque service mismatch");
@@ -69,11 +66,11 @@ console.log(JSON.stringify({ version: VERSION, fingerprint: manifest.fingerprint
 `;
 
 const workerModule = `
-import { D1 } from "./capsuledb-d1-bundle.mjs";
+import { profile as d1Profile } from "./capsuledb-d1-bundle.mjs";
 
 export default {
   fetch() {
-    return Response.json({ dialect: D1.profile.dialect._tag });
+    return Response.json({ provider: d1Profile.provider._tag });
   },
 };
 `;
@@ -270,7 +267,7 @@ describe("packed release candidate consumers", () => {
         const response = await miniflare.dispatchFetch("http://localhost/");
         assert.strictEqual(response.status, 200);
         assert.deepStrictEqual(await response.json(), {
-          dialect: "D1",
+          provider: "D1",
         });
       } finally {
         await miniflare.dispose();
