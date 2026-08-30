@@ -62,13 +62,20 @@ any database mutation.
 Provider dialect and execution capabilities remain separate tagged models. The
 D1 profile is atomic-batch-only: it cannot advertise interactive transactions,
 savepoints, streaming, or arbitrary Effect migration bodies. Transactional
-providers may opt into Effect migration bodies; their source text is still
-provided explicitly for manifest hashing and functions are never serialized.
+providers may opt into Effect migration bodies restricted to the host
+`SqlClient` environment; their source text is still provided explicitly for
+manifest hashing and functions are never serialized.
 
 CapsuleDB owns migration coordination and ledger state. A capsule owns its
 private queries and service implementation. The host supplies and owns the
 `SqlClient` lifecycle. No public module exports tables, rows, query builders,
 raw driver clients, connection constructors, or Promise-based alternatives.
+
+CapsuleDB guarantees deterministic namespace derivation, collision rejection,
+opaque package-owned APIs, and registry composition. It does not parse or
+sandbox package-authored raw SQL or service-layer code. Package authors are
+trusted in v0.1 and remain responsible for avoiding cross-capsule physical
+composition; hosts should treat package migration and service code as trusted.
 
 ## Rejected alternatives
 

@@ -30,7 +30,7 @@ describe("deterministic manifest integrity", () => {
       const second = yield* buildManifest({ capsules: [capsule] });
       assert.deepStrictEqual(second, first);
       assert.strictEqual(second.fingerprint.length, 64);
-      assert.strictEqual(second.capsules[0]?.migrations[0]?.providers.length, 3);
+      assert.strictEqual(second.capsules[0]?.migrations[0]?.providers.length, 4);
     }),
   );
 

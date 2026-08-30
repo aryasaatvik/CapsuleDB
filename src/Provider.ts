@@ -5,6 +5,7 @@ import { InvalidDefinition, UnsupportedCapability } from "./Error.ts";
 /** The SQL dialect is intentionally independent from execution capabilities. */
 export const ProviderDialect = Schema.TaggedUnion({
   Sqlite: {},
+  Libsql: {},
   Postgres: {},
   D1: {},
 });
@@ -12,7 +13,7 @@ export const ProviderDialect = Schema.TaggedUnion({
 export type ProviderDialect = typeof ProviderDialect.Type;
 
 /** Stable runtime keys used by provider implementation maps and manifests. */
-export const providerDialectTags = ["Sqlite", "Postgres", "D1"] as const;
+export const providerDialectTags = ["Sqlite", "Libsql", "Postgres", "D1"] as const;
 
 /** Provider execution capabilities, kept separate from the SQL dialect. */
 export const ProviderCapabilities = Schema.TaggedUnion({
@@ -37,6 +38,8 @@ export const ProviderCapabilities = Schema.TaggedUnion({
     supportsStreaming: Schema.Literal(false),
     supportsEffectMigrations: Schema.Literal(false),
     maxStatements: Schema.Int.check(Schema.isGreaterThan(0)),
+    maxSqlStatementBytes: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
+    maxBoundParameters: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
   },
 });
 
@@ -53,10 +56,14 @@ export type ProviderProfile = typeof ProviderProfile.Type;
 export type ProviderProfileError = InvalidDefinition | UnsupportedCapability;
 
 /** The stable textual dialect key used by migration implementation maps. */
-export const providerDialectName = (dialect: ProviderDialect): "sqlite" | "postgres" | "d1" => {
+export const providerDialectName = (
+  dialect: ProviderDialect,
+): "sqlite" | "libsql" | "postgres" | "d1" => {
   switch (dialect._tag) {
     case "Sqlite":
       return "sqlite";
+    case "Libsql":
+      return "libsql";
     case "Postgres":
       return "postgres";
     case "D1":
@@ -117,6 +124,18 @@ export const BunSqliteProfile: ProviderProfile = {
   },
 };
 
+/** A libSQL profile over a host-provided libSQL client. */
+export const LibsqlProfile: ProviderProfile = {
+  dialect: { _tag: "Libsql" },
+  capabilities: {
+    _tag: "Transactional",
+    supportsTransactions: true,
+    supportsSavepoints: true,
+    supportsStreaming: false,
+    supportsEffectMigrations: true,
+  },
+};
+
 /** A PostgreSQL profile for shared logical migration histories. */
 export const PostgresProfile: ProviderProfile = {
   dialect: { _tag: "Postgres" },
@@ -139,5 +158,27 @@ export const D1Profile: ProviderProfile = {
     supportsStreaming: false,
     supportsEffectMigrations: false,
     maxStatements: 2,
+    maxSqlStatementBytes: 100_000,
+    maxBoundParameters: 100,
   },
 };
+
+/** The profiles used by the provider conformance matrix. */
+export const providerProfiles = Object.freeze([
+  BunSqliteProfile,
+  LibsqlProfile,
+  PostgresProfile,
+  D1Profile,
+] as const);
+
+/**
+ * A machine-readable view of the canonical provider capabilities. The report
+ * is derived from the profiles above so tests and documentation cannot drift
+ * from the runtime validation model.
+ */
+export const providerCapabilityMatrix = Object.freeze(
+  providerProfiles.map((profile) => ({
+    dialect: providerDialectName(profile.dialect),
+    ...profile.capabilities,
+  })),
+);

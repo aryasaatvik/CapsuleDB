@@ -35,6 +35,10 @@
       "types": "./dist/Capsule.d.mts",
       "import": "./dist/Capsule.mjs"
     },
+    "./D1": {
+      "types": "./dist/D1.d.mts",
+      "import": "./dist/D1.mjs"
+    },
     "./Error": {
       "types": "./dist/Error.d.mts",
       "import": "./dist/Error.mjs"
@@ -46,6 +50,14 @@
     "./Manifest": {
       "types": "./dist/Manifest.d.mts",
       "import": "./dist/Manifest.mjs"
+    },
+    "./Pg": {
+      "types": "./dist/Pg.d.mts",
+      "import": "./dist/Pg.mjs"
+    },
+    "./Libsql": {
+      "types": "./dist/Libsql.d.mts",
+      "import": "./dist/Libsql.mjs"
     },
     "./Provider": {
       "types": "./dist/Provider.d.mts",
@@ -72,6 +84,7 @@
     "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings src tests tsdown.config.ts vitest.config.ts vitest.setup.ts oxlint.config.ts",
     "test": "bun ./node_modules/vitest/vitest.mjs run --exclude tests/artifact/**/*.test.ts",
+    "test:providers": "bun ./node_modules/vitest/vitest.mjs run tests/providers tests/conformance tests/lifecycle",
     "test:artifact": "bun run build && vitest run tests/artifact",
     "test:types": "tstyche --config tstyche.config.json --target '>=5.9'",
     "typecheck": "tsc --noEmit"
@@ -79,9 +92,14 @@
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260822.1",
     "@effect/sql-d1": "4.0.0-rc.112",
+    "@effect/sql-libsql": "4.0.0-rc.112",
+    "@effect/sql-pg": "4.0.0-rc.112",
     "@effect/sql-sqlite-bun": "4.0.0-rc.112",
     "@effect/vitest": "4.0.0-rc.112",
+    "@libsql/client": "0.17.4",
+    "@testcontainers/postgresql": "12.1.0",
     "@types/bun": "1.4.0",
+    "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "effect": "4.0.0-rc.112",
     "miniflare": "3.20250718.3",
     "oxfmt": "0.65.0",

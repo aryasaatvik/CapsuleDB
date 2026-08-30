@@ -77,6 +77,30 @@ export class ProviderMismatch extends Schema.TaggedError<ProviderMismatch>()("Pr
   mode: Schema.String,
 }) {}
 
+/** A migration requires an explicit destructive-operation authorization. */
+export class DestructiveMigrationUnauthorized extends Schema.TaggedError<DestructiveMigrationUnauthorized>()(
+  "DestructiveMigrationUnauthorized",
+  {
+    capsuleId: Schema.String,
+    migrationId: Schema.Number,
+    name: Schema.String,
+  },
+) {}
+
+/** The database contains a migration that is newer than the registered code. */
+export class DatabaseAhead extends Schema.TaggedError<DatabaseAhead>()("DatabaseAhead", {
+  capsuleId: Schema.String,
+  migrationId: Schema.Number,
+  name: Schema.String,
+}) {}
+
+/** The ledger and the provider schema no longer describe one complete migration. */
+export class PartialMigration extends Schema.TaggedError<PartialMigration>()("PartialMigration", {
+  capsuleId: Schema.String,
+  migrationId: Schema.Number,
+  reason: Schema.String,
+}) {}
+
 /** A registry or runtime operation could not validate its definition. */
 export class InvalidDefinition extends Schema.TaggedError<InvalidDefinition>()(
   "InvalidDefinition",
@@ -134,6 +158,9 @@ export type CapsuleError =
   | MissingProviderMigration
   | UnsupportedCapability
   | ProviderMismatch
+  | DestructiveMigrationUnauthorized
+  | DatabaseAhead
+  | PartialMigration
   | InvalidDefinition
   | PreparationFailed
   | NotReady

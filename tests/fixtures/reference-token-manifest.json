@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "fingerprint": "ddaafe9815d07596379bf3219f1d4c6e9a66982f4ed7876d6c37a05390e63d48",
+  "fingerprint": "fc9c51360e94ffb6e59b2ef8eb618f4d0c03253913d3896f13d7415e55148fb7",
   "capsules": [
     {
       "id": "reference.tokens",
@@ -10,14 +10,38 @@
           "id": 1,
           "name": "create-tokens",
           "risk": "additive",
-          "checksum": "1fbbaa13d3cc57955572e6035a284de7e0db054c1ebfd84b6131164e1b417105",
+          "checksum": "812254efd69d17a4e6de395bc86bbe3777b1130aedf677e8e4dbcabefb9720dd",
           "providers": [
             {
               "_tag": "Sql",
-              "dialect": "Sqlite",
-              "source": "CREATE TABLE \"capsule_reference_2e_tokens\" (\n          token_hash TEXT PRIMARY KEY NOT NULL,\n          expires_at TEXT NOT NULL,\n          consumed_at TEXT\n        )",
+              "dialect": "D1",
+              "source": "CREATE TABLE \"capsule_reference_2e_tokens\" (\n          token_hash TEXT PRIMARY KEY NOT NULL,\n          expires_at TEXT NOT NULL,\n          consumed_at TEXT,\n          consumption_id TEXT,\n          revoked_at TEXT\n        )",
               "statements": [
-                "CREATE TABLE \"capsule_reference_2e_tokens\" (\n            token_hash TEXT PRIMARY KEY NOT NULL,\n            expires_at TEXT NOT NULL,\n            consumed_at TEXT\n          )"
+                "CREATE TABLE \"capsule_reference_2e_tokens\" (\n            token_hash TEXT PRIMARY KEY NOT NULL,\n            expires_at TEXT NOT NULL,\n            consumed_at TEXT,\n            consumption_id TEXT,\n            revoked_at TEXT\n          )"
+              ]
+            },
+            {
+              "_tag": "Sql",
+              "dialect": "Libsql",
+              "source": "CREATE TABLE \"capsule_reference_2e_tokens\" (\n          token_hash TEXT PRIMARY KEY NOT NULL,\n          expires_at TEXT NOT NULL,\n          consumed_at TEXT,\n          consumption_id TEXT,\n          revoked_at TEXT\n        )",
+              "statements": [
+                "CREATE TABLE \"capsule_reference_2e_tokens\" (\n            token_hash TEXT PRIMARY KEY NOT NULL,\n            expires_at TEXT NOT NULL,\n            consumed_at TEXT,\n            consumption_id TEXT,\n            revoked_at TEXT\n          )"
+              ]
+            },
+            {
+              "_tag": "Sql",
+              "dialect": "Postgres",
+              "source": "CREATE TABLE \"capsule_reference_2e_tokens\" (\n          token_hash TEXT PRIMARY KEY NOT NULL,\n          expires_at TEXT NOT NULL,\n          consumed_at TEXT,\n          consumption_id TEXT,\n          revoked_at TEXT\n        )",
+              "statements": [
+                "CREATE TABLE \"capsule_reference_2e_tokens\" (\n            token_hash TEXT PRIMARY KEY NOT NULL,\n            expires_at TEXT NOT NULL,\n            consumed_at TEXT,\n            consumption_id TEXT,\n            revoked_at TEXT\n          )"
+              ]
+            },
+            {
+              "_tag": "Sql",
+              "dialect": "Sqlite",
+              "source": "CREATE TABLE \"capsule_reference_2e_tokens\" (\n          token_hash TEXT PRIMARY KEY NOT NULL,\n          expires_at TEXT NOT NULL,\n          consumed_at TEXT,\n          consumption_id TEXT,\n          revoked_at TEXT\n        )",
+              "statements": [
+                "CREATE TABLE \"capsule_reference_2e_tokens\" (\n            token_hash TEXT PRIMARY KEY NOT NULL,\n            expires_at TEXT NOT NULL,\n            consumed_at TEXT,\n            consumption_id TEXT,\n            revoked_at TEXT\n          )"
               ]
             }
           ]
@@ -26,16 +50,38 @@
           "id": 2,
           "name": "add-token-audit",
           "risk": "additive",
-          "checksum": "48578a6a0501ab7ebc3291f1d36e2be1b0640905cad2b266185e7507aad9d3aa",
+          "checksum": "5cf0d29c9ec566708b2f519a62c6353616742b5133cb868dfe2aa5e5af6eb760",
           "providers": [
             {
               "_tag": "Sql",
-              "dialect": "Sqlite",
-              "source": "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n          audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n          token_hash TEXT NOT NULL,\n          consumed_at TEXT NOT NULL\n        )",
+              "dialect": "D1",
+              "source": "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n          audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n          token_hash TEXT NOT NULL UNIQUE,\n          consumed_at TEXT NOT NULL\n        )",
               "statements": [
-                "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n            token_hash TEXT NOT NULL,\n            consumed_at TEXT NOT NULL\n          )",
-                "ALTER TABLE \"capsule_reference_2e_tokens\" ADD COLUMN revoked_at TEXT",
-                "UPDATE \"capsule_reference_2e_tokens\" SET revoked_at = NULL WHERE revoked_at IS NULL"
+                "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n            token_hash TEXT NOT NULL UNIQUE,\n            consumed_at TEXT NOT NULL\n          )"
+              ]
+            },
+            {
+              "_tag": "Sql",
+              "dialect": "Libsql",
+              "source": "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n          audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n          token_hash TEXT NOT NULL UNIQUE,\n          consumed_at TEXT NOT NULL\n        )",
+              "statements": [
+                "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n            token_hash TEXT NOT NULL UNIQUE,\n            consumed_at TEXT NOT NULL\n          )"
+              ]
+            },
+            {
+              "_tag": "Sql",
+              "dialect": "Postgres",
+              "source": "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n          audit_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,\n          token_hash TEXT NOT NULL UNIQUE,\n          consumed_at TEXT NOT NULL\n        )",
+              "statements": [
+                "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n            audit_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,\n            token_hash TEXT NOT NULL UNIQUE,\n            consumed_at TEXT NOT NULL\n          )"
+              ]
+            },
+            {
+              "_tag": "Sql",
+              "dialect": "Sqlite",
+              "source": "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n          audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n          token_hash TEXT NOT NULL UNIQUE,\n          consumed_at TEXT NOT NULL\n        )",
+              "statements": [
+                "CREATE TABLE \"capsule_reference_2e_token_audit\" (\n            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n            token_hash TEXT NOT NULL UNIQUE,\n            consumed_at TEXT NOT NULL\n          )"
               ]
             }
           ]

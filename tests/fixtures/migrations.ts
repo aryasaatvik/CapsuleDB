@@ -14,6 +14,7 @@ export const makeFixtureMigration = (
     risk: "additive",
     providers: {
       Sqlite: sqlMigrationBody(source, [source]),
+      Libsql: sqlMigrationBody(source, [source]),
       Postgres: sqlMigrationBody(source, [source]),
       D1: sqlMigrationBody(source, [source]),
     },
