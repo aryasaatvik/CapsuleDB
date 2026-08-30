@@ -3,11 +3,12 @@ import { Console, Effect } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { realpathSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
-import { dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   buildD1Artifact,
+  decodeD1Artifact,
   renderD1ArtifactFile,
   stringifyD1Artifact,
   validateD1Artifact,
@@ -351,6 +352,26 @@ const isInvokedDirectly = (): boolean => {
   }
 };
 
+const isDirectSqlPath = (path: string): boolean =>
+  path.length > 0 && path.endsWith(".sql") && basename(path) === path;
+
+const readOwnedArtifactPaths = (output: string): Effect.Effect<ReadonlySet<string>, never> =>
+  Effect.gen(function* () {
+    const previousInput = yield* readJson<unknown>(join(output, "artifact.json"), "D1 artifact");
+    const previous = yield* decodeD1Artifact(previousInput);
+    const owned = new Set<string>();
+    for (const file of previous.files) {
+      if (!isDirectSqlPath(file.path)) continue;
+      const contents = yield* readText(join(output, file.path), `D1 artifact ${file.path}`).pipe(
+        Effect.option,
+      );
+      if (contents._tag === "Some" && contents.value === renderD1ArtifactFile(file)) {
+        owned.add(file.path);
+      }
+    }
+    return owned;
+  }).pipe(Effect.orElseSucceed(() => new Set<string>()));
+
 const writeArtifactOutput = (
   output: string,
   artifact: D1Artifact,
@@ -366,23 +387,12 @@ const writeArtifactOutput = (
       catch: (cause) => operationError("D1 artifact directory output", cause),
     });
     const expectedPaths = new Set(artifact.files.map((file) => file.path));
-    const existingEntries = yield* Effect.tryPromise({
-      try: () => readdir(absoluteOutput, { withFileTypes: true }),
-      catch: (cause) => operationError("D1 artifact directory output", cause),
-    });
-    for (const entry of existingEntries) {
-      if (!entry.name.endsWith(".sql") || expectedPaths.has(entry.name)) continue;
-      if (!entry.isFile() && !entry.isSymbolicLink()) {
-        return yield* Effect.fail(
-          new InvalidDefinition({
-            subject: `D1 artifact directory ${entry.name}`,
-            reason: "cannot remove an obsolete SQL path that is not a file",
-          }),
-        );
-      }
+    const previouslyOwnedPaths = yield* readOwnedArtifactPaths(absoluteOutput);
+    for (const path of previouslyOwnedPaths) {
+      if (expectedPaths.has(path)) continue;
       yield* Effect.tryPromise({
-        try: () => unlink(join(absoluteOutput, entry.name)),
-        catch: (cause) => operationError(`D1 artifact ${entry.name}`, cause),
+        try: () => unlink(join(absoluteOutput, path)),
+        catch: (cause) => operationError(`D1 artifact ${path}`, cause),
       });
     }
     yield* writeText(

@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Console, Effect, Exit } from "effect";
-import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -153,7 +153,22 @@ describe("CapsuleDB manifest CLI", () => {
       true,
     );
 
-    await writeFile(join(artifactDirectory, "obsolete.sql"), "SELECT obsolete");
+    const artifactIndex = JSON.parse(
+      await readFile(join(artifactDirectory, "artifact.json"), "utf8"),
+    ) as { files: Array<Record<string, unknown>> };
+    const firstFile = artifactIndex.files[0];
+    const firstPath = typeof firstFile?.path === "string" ? firstFile.path : undefined;
+    if (firstFile === undefined || firstPath === undefined) {
+      throw new Error("artifact index is missing its first file");
+    }
+    const firstSql = await readFile(join(artifactDirectory, firstPath), "utf8");
+    firstFile.path = "obsolete.sql";
+    await writeFile(join(artifactDirectory, "obsolete.sql"), firstSql);
+    await writeFile(join(artifactDirectory, "unrelated.sql"), "SELECT unrelated");
+    await writeFile(
+      join(artifactDirectory, "artifact.json"),
+      `${JSON.stringify(artifactIndex, null, 2)}\n`,
+    );
     const regenerated = await runCli([
       "d1",
       "artifact",
@@ -166,7 +181,27 @@ describe("CapsuleDB manifest CLI", () => {
       "--json",
     ]);
     assert.strictEqual(Exit.isSuccess(regenerated.exit), true);
-    assert.strictEqual((await readdir(artifactDirectory)).includes("obsolete.sql"), false);
+    const regeneratedEntries = await readdir(artifactDirectory);
+    assert.strictEqual(regeneratedEntries.includes("obsolete.sql"), false);
+    assert.strictEqual(regeneratedEntries.includes("unrelated.sql"), true);
+
+    const checkWithUnknown = await runCli([
+      "d1",
+      "check",
+      "--module",
+      modulePath,
+      "--export",
+      "capsule",
+      "--artifact",
+      artifactDirectory,
+      "--json",
+    ]);
+    assert.strictEqual(Exit.isFailure(checkWithUnknown.exit), true);
+    const unknownError = JSON.parse(checkWithUnknown.logs[0] ?? "{}") as {
+      error?: { message?: string };
+    };
+    assert.strictEqual(unknownError.error?.message?.includes("unrelated.sql"), true);
+    await unlink(join(artifactDirectory, "unrelated.sql"));
 
     const checked = await runCli([
       "d1",
