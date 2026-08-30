@@ -98,6 +98,62 @@ describe("D1 artifact projection", () => {
     }),
   );
 
+  it.effect("mirrors claim-first batch limits and keeps namespace paths injective", () =>
+    Effect.gen(function* () {
+      const oversizedMigration = yield* makeMigration({
+        id: 1,
+        name: "two-statements",
+        risk: "additive",
+        providers: {
+          D1: sqlMigrationBody("two statements", ["SELECT 1", "SELECT 2"]),
+        },
+      });
+      const oversizedCapsule = yield* makeCapsule({
+        id: "artifact.oversized",
+        migrations: [oversizedMigration],
+        layer: Layer.empty,
+      });
+      const oversizedManifest = yield* buildManifest({ capsules: [oversizedCapsule] });
+      const oversizedFailure = yield* buildD1Artifact(oversizedManifest).pipe(Effect.flip);
+      assert.strictEqual(oversizedFailure._tag, "InvalidDefinition");
+
+      const firstMigration = yield* makeMigration({
+        id: 1,
+        name: "same-migration",
+        risk: "additive",
+        providers: { D1: sqlMigrationBody("first", ["SELECT 1"]) },
+      });
+      const secondMigration = yield* makeMigration({
+        id: 1,
+        name: "same-migration",
+        risk: "additive",
+        providers: { D1: sqlMigrationBody("second", ["SELECT 2"]) },
+      });
+      const firstCapsule = yield* makeCapsule({
+        id: "a.b",
+        migrations: [firstMigration],
+        layer: Layer.empty,
+      });
+      const secondCapsule = yield* makeCapsule({
+        id: "a-b",
+        migrations: [secondMigration],
+        layer: Layer.empty,
+      });
+      const manifest = yield* buildManifest({ capsules: [firstCapsule, secondCapsule] });
+      const artifact = yield* buildD1Artifact(manifest);
+      const paths = artifact.files.map((file) => file.path);
+      assert.strictEqual(new Set(paths).size, paths.length);
+      assert.strictEqual(
+        paths.some((path) => path.includes("capsule_a_2e_b")),
+        true,
+      );
+      assert.strictEqual(
+        paths.some((path) => path.includes("capsule_a_2d_b")),
+        true,
+      );
+    }),
+  );
+
   it.effect("keeps generated SQL files exactly tied to the artifact index", () =>
     Effect.gen(function* () {
       const manifest = yield* makeStaticManifest();

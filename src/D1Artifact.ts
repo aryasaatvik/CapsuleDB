@@ -65,8 +65,10 @@ const slug = (value: string): string =>
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
 
+const pathSegment = (value: string): string => encodeURIComponent(value);
+
 const filePath = (capsule: ManifestCapsule, migration: ManifestMigration): string =>
-  `${String(migration.id).padStart(4, "0")}-${slug(capsule.id)}-${slug(migration.name)}.sql`;
+  `${String(migration.id).padStart(4, "0")}-${pathSegment(capsule.namespace)}-${slug(migration.name)}.sql`;
 
 const d1Body = (
   capsule: ManifestCapsule,
@@ -100,11 +102,14 @@ const d1Body = (
         }),
       );
     }
-    if (provider.statements.length > capabilities.maxStatements) {
+    // Runtime preparation prepends one ledger claim to this body. Keep the
+    // static projection within that same complete claim-first batch limit.
+    const maxBodyStatements = capabilities.maxStatements - 1;
+    if (provider.statements.length > maxBodyStatements) {
       return yield* Effect.fail(
         new InvalidDefinition({
           subject: `D1 artifact ${capsule.id}/${migration.id}`,
-          reason: `D1 migration has ${provider.statements.length} statements; maximum is ${capabilities.maxStatements}`,
+          reason: `D1 migration has ${provider.statements.length} body statements; runtime claim-first batches allow at most ${maxBodyStatements}`,
         }),
       );
     }
@@ -140,9 +145,20 @@ export const buildD1Artifact = (manifest: Manifest): Effect.Effect<D1Artifact, D
   Effect.gen(function* () {
     const verified = yield* decodeManifest(manifest);
     const files: Array<D1ArtifactFile> = [];
+    const paths = new Set<string>();
     for (const capsule of verified.capsules) {
       for (const migration of capsule.migrations) {
-        files.push(yield* d1Body(capsule, migration));
+        const file = yield* d1Body(capsule, migration);
+        if (paths.has(file.path)) {
+          return yield* Effect.fail(
+            new InvalidDefinition({
+              subject: "D1 artifact",
+              reason: `duplicate output path ${file.path}`,
+            }),
+          );
+        }
+        paths.add(file.path);
+        files.push(file);
       }
     }
     return {
