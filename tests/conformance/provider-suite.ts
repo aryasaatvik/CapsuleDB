@@ -1,4 +1,4 @@
-import { assert } from "@effect/vitest";
+import { assert, vi } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -77,6 +77,33 @@ export const runProviderSuite = (
       }).pipe(
         Effect.provide(OneTimeTokens.layer),
         Effect.provideService(SqlClient.SqlClient, client),
+      ),
+    );
+
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const service = yield* Effect.service(OneTimeTokens);
+        const issuedBeforeSkew = yield* service.issue("2099-01-01T00:00:00.000Z");
+
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2200-01-01T00:00:00.000Z"));
+
+        assert.strictEqual((yield* service.get(issuedBeforeSkew.token))._tag, "Pending");
+        const consumed = yield* service.consume(issuedBeforeSkew.token);
+        assert.strictEqual(consumed.token, issuedBeforeSkew.token);
+        assert.notStrictEqual(consumed.consumedAt, "2200-01-01T00:00:00.000Z");
+
+        const issuedDuringSkew = yield* service.issue("2099-01-01T00:00:00.000Z");
+        yield* service.revoke(issuedDuringSkew.token);
+        const revoked = yield* service.get(issuedDuringSkew.token);
+        assert.strictEqual(revoked._tag, "Revoked");
+        if (revoked._tag === "Revoked") {
+          assert.notStrictEqual(revoked.revokedAt, "2200-01-01T00:00:00.000Z");
+        }
+      }).pipe(
+        Effect.provide(OneTimeTokens.layer),
+        Effect.provideService(SqlClient.SqlClient, client),
+        Effect.ensuring(Effect.sync(() => vi.useRealTimers())),
       ),
     );
 

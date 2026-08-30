@@ -64,6 +64,11 @@ interface TokenRow {
   readonly revoked_at: string | null;
 }
 
+interface DatabaseInstant {
+  readonly iso: string;
+  readonly timestamp: number;
+}
+
 /** The only extra client operation used by the D1 domain path. */
 interface AtomicBatchSql extends SqlClient.SqlClient {
   readonly batch: (
@@ -76,6 +81,8 @@ const isAtomicBatchSql = (sql: SqlClient.SqlClient): sql is AtomicBatchSql =>
 
 const ISO_TIMESTAMP_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+const SQLITE_TIMESTAMP_PATTERN = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?$/;
 
 /** Parse only full ISO-8601 timestamps with an explicit timezone. */
 const parseIsoTimestamp = (input: unknown): number | undefined => {
@@ -114,6 +121,39 @@ const parseIsoTimestamp = (input: unknown): number | undefined => {
   return Number.isFinite(timestamp) ? timestamp : undefined;
 };
 
+/** Normalize the provider result shapes returned by `CURRENT_TIMESTAMP`. */
+const parseDatabaseTimestamp = (input: unknown): number | undefined => {
+  if (input instanceof Date) {
+    const timestamp = input.getTime();
+    return Number.isFinite(timestamp) ? timestamp : undefined;
+  }
+  if (typeof input === "number") return Number.isFinite(input) ? input : undefined;
+  if (typeof input !== "string") return undefined;
+
+  const isoTimestamp = parseIsoTimestamp(input);
+  if (isoTimestamp !== undefined) return isoTimestamp;
+
+  const sqliteTimestamp = SQLITE_TIMESTAMP_PATTERN.exec(input);
+  if (sqliteTimestamp === null) return undefined;
+  const fraction = sqliteTimestamp[3]?.slice(0, 3).padEnd(3, "0") ?? "000";
+  return parseIsoTimestamp(`${sqliteTimestamp[1]}T${sqliteTimestamp[2]}.${fraction}Z`);
+};
+
+const readDatabaseInstant = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<DatabaseInstant, InvalidToken | SqlError> =>
+  Effect.gen(function* () {
+    const rows = yield* sql<{ readonly database_now: unknown }>`
+      SELECT CURRENT_TIMESTAMP AS database_now`;
+    const timestamp = parseDatabaseTimestamp(rows[0]?.database_now);
+    if (timestamp === undefined) {
+      return yield* Effect.fail(
+        new InvalidToken({ reason: "the database returned an invalid current timestamp" }),
+      );
+    }
+    return { iso: new Date(timestamp).toISOString(), timestamp };
+  });
+
 const decodeToken = (input: unknown): Effect.Effect<Token, InvalidToken> =>
   Effect.try({
     try: () => Schema.decodeUnknownSync(Token)(input),
@@ -138,7 +178,10 @@ const generateToken = (): Token =>
     ).join(""),
   );
 
-const validateExpiry = (input: unknown): Effect.Effect<string, InvalidToken> =>
+const validateExpiry = (
+  input: unknown,
+  databaseNow: DatabaseInstant,
+): Effect.Effect<string, InvalidToken> =>
   Effect.gen(function* () {
     const timestamp = parseIsoTimestamp(input);
     if (timestamp === undefined) {
@@ -146,7 +189,7 @@ const validateExpiry = (input: unknown): Effect.Effect<string, InvalidToken> =>
         new InvalidToken({ reason: "expiresAt must be an ISO-8601 timestamp" }),
       );
     }
-    if (timestamp <= Date.now()) {
+    if (timestamp <= databaseNow.timestamp) {
       return yield* Effect.fail(new InvalidToken({ reason: "expiresAt must be in the future" }));
     }
     return new Date(timestamp).toISOString();
@@ -162,7 +205,10 @@ const readToken = (
     return rows[0];
   });
 
-const stateOf = (row: TokenRow): Effect.Effect<TokenState, InvalidToken> =>
+const stateOf = (
+  row: TokenRow,
+  databaseNow: DatabaseInstant,
+): Effect.Effect<TokenState, InvalidToken> =>
   Effect.gen(function* () {
     const expiresAt = parseIsoTimestamp(row.expires_at);
     if (expiresAt === undefined) {
@@ -172,14 +218,15 @@ const stateOf = (row: TokenRow): Effect.Effect<TokenState, InvalidToken> =>
       return { _tag: "Revoked", expiresAt: row.expires_at, revokedAt: row.revoked_at };
     if (row.consumed_at !== null)
       return { _tag: "Consumed", expiresAt: row.expires_at, consumedAt: row.consumed_at };
-    if (expiresAt <= Date.now()) return { _tag: "Expired", expiresAt: row.expires_at };
+    if (expiresAt <= databaseNow.timestamp) return { _tag: "Expired", expiresAt: row.expires_at };
     return { _tag: "Pending", expiresAt: row.expires_at };
   });
 
 const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
   issue: (expiresAt) =>
     Effect.gen(function* () {
-      const validExpiry = yield* validateExpiry(expiresAt);
+      const databaseNow = yield* readDatabaseInstant(sql);
+      const validExpiry = yield* validateExpiry(expiresAt, databaseNow);
       const token = generateToken();
       const tokenHash = yield* digest(token);
       yield* sql`INSERT INTO ${sql(TOKEN_TABLE)} (token_hash, expires_at, consumed_at)
@@ -193,28 +240,28 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
       const tokenHash = yield* digest(token);
       const row = yield* readToken(sql, tokenHash);
       if (row === undefined) return yield* Effect.fail(new TokenNotFound({ token: "redacted" }));
-      return yield* stateOf(row);
+      return yield* stateOf(row, yield* readDatabaseInstant(sql));
     }),
 
   consume: (input) =>
     Effect.gen(function* () {
       const token = yield* decodeToken(input);
       const tokenHash = yield* digest(token);
-      const consumedAt = new Date().toISOString();
 
       if (isAtomicBatchSql(sql)) {
+        const databaseNow = yield* readDatabaseInstant(sql);
         const updatedStatement = sql<TokenRow>`UPDATE ${sql(TOKEN_TABLE)}
-          SET consumed_at = ${consumedAt}
+          SET consumed_at = ${databaseNow.iso}
           WHERE token_hash = ${tokenHash}
             AND consumed_at IS NULL
             AND revoked_at IS NULL
-            AND expires_at > ${new Date().toISOString()}
+            AND expires_at > ${databaseNow.iso}
           RETURNING expires_at, consumed_at, revoked_at`;
         const auditStatement = sql`INSERT INTO ${sql(AUDIT_TABLE)} (token_hash, consumed_at)
-          SELECT ${tokenHash}, ${consumedAt}
+          SELECT ${tokenHash}, ${databaseNow.iso}
           WHERE EXISTS (
             SELECT 1 FROM ${sql(TOKEN_TABLE)}
-            WHERE token_hash = ${tokenHash} AND consumed_at = ${consumedAt}
+            WHERE token_hash = ${tokenHash} AND consumed_at = ${databaseNow.iso}
           )`;
         const results = yield* sql.batch([updatedStatement, auditStatement]);
         const updated = (results[0] ?? []) as ReadonlyArray<TokenRow>;
@@ -227,11 +274,12 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
           }
           return yield* Effect.fail(new TokenNotFound({ token: "redacted" }));
         }
-        return { token, consumedAt };
+        return { token, consumedAt: databaseNow.iso };
       }
 
       return yield* sql.withTransaction(
         Effect.gen(function* () {
+          const databaseNow = yield* readDatabaseInstant(sql);
           const row = yield* readToken(sql, tokenHash);
           if (row === undefined)
             return yield* Effect.fail(new TokenNotFound({ token: "redacted" }));
@@ -243,16 +291,16 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
             );
           }
           const expiresAt = parseIsoTimestamp(row.expires_at);
-          if (expiresAt === undefined || expiresAt <= Date.now()) {
+          if (expiresAt === undefined || expiresAt <= databaseNow.timestamp) {
             return yield* Effect.fail(new TokenNotFound({ token: "redacted" }));
           }
 
           const updated = yield* sql<TokenRow>`UPDATE ${sql(TOKEN_TABLE)}
-            SET consumed_at = ${consumedAt}
+            SET consumed_at = ${databaseNow.iso}
             WHERE token_hash = ${tokenHash}
               AND consumed_at IS NULL
               AND revoked_at IS NULL
-              AND expires_at > ${new Date().toISOString()}
+              AND expires_at > ${databaseNow.iso}
             RETURNING expires_at, consumed_at, revoked_at`;
           if (updated.length === 0) {
             const current = yield* readToken(sql, tokenHash);
@@ -265,8 +313,8 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
           }
 
           yield* sql`INSERT INTO ${sql(AUDIT_TABLE)} (token_hash, consumed_at)
-            VALUES (${tokenHash}, ${consumedAt})`;
-          return { token, consumedAt };
+            VALUES (${tokenHash}, ${databaseNow.iso})`;
+          return { token, consumedAt: databaseNow.iso };
         }),
       );
     }),
@@ -275,9 +323,9 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
     Effect.gen(function* () {
       const token = yield* decodeToken(input);
       const tokenHash = yield* digest(token);
-      const revokedAt = new Date().toISOString();
+      const databaseNow = yield* readDatabaseInstant(sql);
       const updated = yield* sql<TokenRow>`UPDATE ${sql(TOKEN_TABLE)}
-        SET revoked_at = ${revokedAt}
+        SET revoked_at = ${databaseNow.iso}
         WHERE token_hash = ${tokenHash} AND consumed_at IS NULL AND revoked_at IS NULL
         RETURNING expires_at, consumed_at, revoked_at`;
       if (updated.length === 0) return yield* Effect.fail(new TokenNotFound({ token: "redacted" }));

@@ -168,7 +168,7 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
     ),
   );
 
-  it.effect("checks expiry again in the atomic consumption update", () =>
+  it.effect("checks expiry against the database clock in the atomic consumption update", () =>
     withSqlite(
       Effect.gen(function* () {
         const capsule = yield* referenceTokenCapsule;
@@ -180,10 +180,18 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
         const sql = yield* Effect.service(SqlClient.SqlClient);
         const service = yield* Effect.service(OneTimeTokens);
 
+        const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
+        const tokenRows = yield* sql<{ readonly token_hash: string }>`SELECT token_hash
+          FROM "capsule_reference_2e_tokens"`;
+        assert.strictEqual(tokenRows.length, 1);
+        const tokenRow = tokenRows[0];
+        if (tokenRow === undefined) throw new Error("issued token was not persisted");
+        yield* sql`UPDATE "capsule_reference_2e_tokens"
+          SET expires_at = '2000-01-01T00:00:00.000Z'
+          WHERE token_hash = ${tokenRow.token_hash}`;
+
         vi.useFakeTimers();
-        vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
-        const issued = yield* service.issue("2021-01-01T00:00:00.000Z");
-        vi.setSystemTime(new Date("2022-01-01T00:00:00.000Z"));
+        vi.setSystemTime(new Date("1970-01-01T00:00:00.000Z"));
         const failure = yield* service.consume(issued.token).pipe(Effect.flip);
         assert.strictEqual(failure._tag, "TokenNotFound");
         const auditRows = yield* sql<{ readonly count: number }>`SELECT COUNT(*) AS count
