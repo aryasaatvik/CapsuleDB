@@ -1,0 +1,71 @@
+import { Effect } from "effect";
+import type * as SqlClient from "effect/unstable/sql/SqlClient";
+
+import { makeCapsule } from "../../src/Capsule.ts";
+import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
+import { OneTimeTokens } from "./OneTimeTokens.ts";
+
+const TOKEN_TABLE = "capsule_reference_2e_tokens";
+const AUDIT_TABLE = "capsule_reference_2e_token_audit";
+
+/**
+ * The reference capsule demonstrates package-author composition. Its physical
+ * table names stay private to this module and are never part of the service
+ * contract.
+ */
+export const capsule = Effect.gen(function* () {
+  const createTokens = yield* makeMigration({
+    id: 1,
+    name: "create-tokens",
+    risk: "additive",
+    providers: {
+      Sqlite: sqlMigrationBody(
+        `CREATE TABLE "${TOKEN_TABLE}" (
+          token_hash TEXT PRIMARY KEY NOT NULL,
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT
+        )`,
+        [
+          `CREATE TABLE "${TOKEN_TABLE}" (
+            token_hash TEXT PRIMARY KEY NOT NULL,
+            expires_at TEXT NOT NULL,
+            consumed_at TEXT
+          )`,
+        ],
+      ),
+    },
+  });
+  const addAudit = yield* makeMigration({
+    id: 2,
+    name: "add-token-audit",
+    risk: "additive",
+    providers: {
+      Sqlite: sqlMigrationBody(
+        `CREATE TABLE "${AUDIT_TABLE}" (
+          audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          token_hash TEXT NOT NULL,
+          consumed_at TEXT NOT NULL
+        )`,
+        [
+          `CREATE TABLE "${AUDIT_TABLE}" (
+            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token_hash TEXT NOT NULL,
+            consumed_at TEXT NOT NULL
+          )`,
+          `ALTER TABLE "${TOKEN_TABLE}" ADD COLUMN revoked_at TEXT`,
+          `UPDATE "${TOKEN_TABLE}" SET revoked_at = NULL WHERE revoked_at IS NULL`,
+        ],
+      ),
+    },
+  });
+
+  return yield* makeCapsule({
+    id: "reference.tokens",
+    migrations: [createTokens, addAudit],
+    layer: OneTimeTokens.layer,
+  });
+});
+
+export type ReferenceTokenService = OneTimeTokens;
+
+export type ReferenceTokenSqlRequirements = SqlClient.SqlClient;
