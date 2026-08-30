@@ -47,6 +47,10 @@
       "types": "./dist/Manifest.d.mts",
       "import": "./dist/Manifest.mjs"
     },
+    "./Libsql": {
+      "types": "./dist/Libsql.d.mts",
+      "import": "./dist/Libsql.mjs"
+    },
     "./Provider": {
       "types": "./dist/Provider.d.mts",
       "import": "./dist/Provider.mjs"
@@ -79,8 +83,10 @@
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260822.1",
     "@effect/sql-d1": "4.0.0-rc.112",
+    "@effect/sql-libsql": "4.0.0-rc.112",
     "@effect/sql-sqlite-bun": "4.0.0-rc.112",
     "@effect/vitest": "4.0.0-rc.112",
+    "@libsql/client": "0.17.4",
     "@types/bun": "1.4.0",
     "effect": "4.0.0-rc.112",
     "miniflare": "3.20250718.3",

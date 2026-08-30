@@ -29,6 +29,7 @@ export type Checksum = typeof Checksum.Type;
 
 const ManifestDialect = Schema.Union([
   Schema.Literal("Sqlite"),
+  Schema.Literal("Libsql"),
   Schema.Literal("Postgres"),
   Schema.Literal("D1"),
 ]);

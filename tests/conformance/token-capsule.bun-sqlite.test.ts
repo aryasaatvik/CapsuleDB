@@ -183,6 +183,7 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
         const issued = yield* service.issue("2021-01-01T00:00:00.000Z");
+        vi.setSystemTime(new Date("2022-01-01T00:00:00.000Z"));
         const failure = yield* service.consume(issued.token).pipe(Effect.flip);
         assert.strictEqual(failure._tag, "TokenNotFound");
         const auditRows = yield* sql<{ readonly count: number }>`SELECT COUNT(*) AS count

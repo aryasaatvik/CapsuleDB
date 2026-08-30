@@ -5,6 +5,7 @@ import { InvalidDefinition, UnsupportedCapability } from "./Error.ts";
 /** The SQL dialect is intentionally independent from execution capabilities. */
 export const ProviderDialect = Schema.TaggedUnion({
   Sqlite: {},
+  Libsql: {},
   Postgres: {},
   D1: {},
 });
@@ -12,7 +13,7 @@ export const ProviderDialect = Schema.TaggedUnion({
 export type ProviderDialect = typeof ProviderDialect.Type;
 
 /** Stable runtime keys used by provider implementation maps and manifests. */
-export const providerDialectTags = ["Sqlite", "Postgres", "D1"] as const;
+export const providerDialectTags = ["Sqlite", "Libsql", "Postgres", "D1"] as const;
 
 /** Provider execution capabilities, kept separate from the SQL dialect. */
 export const ProviderCapabilities = Schema.TaggedUnion({
@@ -53,10 +54,14 @@ export type ProviderProfile = typeof ProviderProfile.Type;
 export type ProviderProfileError = InvalidDefinition | UnsupportedCapability;
 
 /** The stable textual dialect key used by migration implementation maps. */
-export const providerDialectName = (dialect: ProviderDialect): "sqlite" | "postgres" | "d1" => {
+export const providerDialectName = (
+  dialect: ProviderDialect,
+): "sqlite" | "libsql" | "postgres" | "d1" => {
   switch (dialect._tag) {
     case "Sqlite":
       return "sqlite";
+    case "Libsql":
+      return "libsql";
     case "Postgres":
       return "postgres";
     case "D1":
@@ -108,6 +113,18 @@ export const makeProviderProfile = (
 /** The Bun SQLite profile used by the first runtime tracer. */
 export const BunSqliteProfile: ProviderProfile = {
   dialect: { _tag: "Sqlite" },
+  capabilities: {
+    _tag: "Transactional",
+    supportsTransactions: true,
+    supportsSavepoints: true,
+    supportsStreaming: false,
+    supportsEffectMigrations: true,
+  },
+};
+
+/** A libSQL profile over a host-provided libSQL client. */
+export const LibsqlProfile: ProviderProfile = {
+  dialect: { _tag: "Libsql" },
   capabilities: {
     _tag: "Transactional",
     supportsTransactions: true,

@@ -213,7 +213,7 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
             WHERE token_hash = ${tokenHash}
               AND consumed_at IS NULL
               AND revoked_at IS NULL
-              AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+              AND expires_at > ${new Date().toISOString()}
             RETURNING expires_at, consumed_at, revoked_at`;
           if (updated.length === 0) {
             const current = yield* readToken(sql, tokenHash);

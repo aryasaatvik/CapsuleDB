@@ -23,13 +23,31 @@ export const capsule = Effect.gen(function* () {
         `CREATE TABLE "${TOKEN_TABLE}" (
           token_hash TEXT PRIMARY KEY NOT NULL,
           expires_at TEXT NOT NULL,
-          consumed_at TEXT
+          consumed_at TEXT,
+          revoked_at TEXT
         )`,
         [
           `CREATE TABLE "${TOKEN_TABLE}" (
             token_hash TEXT PRIMARY KEY NOT NULL,
             expires_at TEXT NOT NULL,
-            consumed_at TEXT
+            consumed_at TEXT,
+            revoked_at TEXT
+          )`,
+        ],
+      ),
+      Libsql: sqlMigrationBody(
+        `CREATE TABLE "${TOKEN_TABLE}" (
+          token_hash TEXT PRIMARY KEY NOT NULL,
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT,
+          revoked_at TEXT
+        )`,
+        [
+          `CREATE TABLE "${TOKEN_TABLE}" (
+            token_hash TEXT PRIMARY KEY NOT NULL,
+            expires_at TEXT NOT NULL,
+            consumed_at TEXT,
+            revoked_at TEXT
           )`,
         ],
       ),
@@ -52,8 +70,20 @@ export const capsule = Effect.gen(function* () {
             token_hash TEXT NOT NULL,
             consumed_at TEXT NOT NULL
           )`,
-          `ALTER TABLE "${TOKEN_TABLE}" ADD COLUMN revoked_at TEXT`,
-          `UPDATE "${TOKEN_TABLE}" SET revoked_at = NULL WHERE revoked_at IS NULL`,
+        ],
+      ),
+      Libsql: sqlMigrationBody(
+        `CREATE TABLE "${AUDIT_TABLE}" (
+          audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          token_hash TEXT NOT NULL,
+          consumed_at TEXT NOT NULL
+        )`,
+        [
+          `CREATE TABLE "${AUDIT_TABLE}" (
+            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token_hash TEXT NOT NULL,
+            consumed_at TEXT NOT NULL
+          )`,
         ],
       ),
     },

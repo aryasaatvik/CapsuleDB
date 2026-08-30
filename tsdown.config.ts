@@ -8,6 +8,7 @@ export default defineConfig({
     Error: "src/Error.ts",
     index: "src/index.ts",
     Migration: "src/Migration.ts",
+    Libsql: "src/Libsql.ts",
     Manifest: "src/Manifest.ts",
     Provider: "src/Provider.ts",
     Readiness: "src/Readiness.ts",
