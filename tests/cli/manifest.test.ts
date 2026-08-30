@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Console, Effect, Exit } from "effect";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -152,6 +152,21 @@ describe("CapsuleDB manifest CLI", () => {
       sqlContents.every((contents) => contents.length > 0),
       true,
     );
+
+    await writeFile(join(artifactDirectory, "obsolete.sql"), "SELECT obsolete");
+    const regenerated = await runCli([
+      "d1",
+      "artifact",
+      "--module",
+      modulePath,
+      "--export",
+      "capsule",
+      "--output",
+      artifactDirectory,
+      "--json",
+    ]);
+    assert.strictEqual(Exit.isSuccess(regenerated.exit), true);
+    assert.strictEqual((await readdir(artifactDirectory)).includes("obsolete.sql"), false);
 
     const checked = await runCli([
       "d1",

@@ -2,7 +2,7 @@
 import { Console, Effect } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { realpathSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -365,6 +365,26 @@ const writeArtifactOutput = (
       try: () => mkdir(absoluteOutput, { recursive: true }),
       catch: (cause) => operationError("D1 artifact directory output", cause),
     });
+    const expectedPaths = new Set(artifact.files.map((file) => file.path));
+    const existingEntries = yield* Effect.tryPromise({
+      try: () => readdir(absoluteOutput, { withFileTypes: true }),
+      catch: (cause) => operationError("D1 artifact directory output", cause),
+    });
+    for (const entry of existingEntries) {
+      if (!entry.name.endsWith(".sql") || expectedPaths.has(entry.name)) continue;
+      if (!entry.isFile() && !entry.isSymbolicLink()) {
+        return yield* Effect.fail(
+          new InvalidDefinition({
+            subject: `D1 artifact directory ${entry.name}`,
+            reason: "cannot remove an obsolete SQL path that is not a file",
+          }),
+        );
+      }
+      yield* Effect.tryPromise({
+        try: () => unlink(join(absoluteOutput, entry.name)),
+        catch: (cause) => operationError(`D1 artifact ${entry.name}`, cause),
+      });
+    }
     yield* writeText(
       join(absoluteOutput, "artifact.json"),
       stringifyD1Artifact(artifact),
