@@ -2,7 +2,7 @@
 import { Console, Effect } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { realpathSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -93,6 +93,43 @@ const readText = (path: string, subject: string): Effect.Effect<string, InvalidD
   Effect.tryPromise({
     try: () => readFile(resolve(path), "utf8"),
     catch: (cause) => operationError(subject, cause),
+  });
+
+const isMissingFile = (cause: unknown): boolean =>
+  typeof cause === "object" &&
+  cause !== null &&
+  "code" in cause &&
+  (cause as { readonly code?: unknown }).code === "ENOENT";
+
+const readOptionalText = (
+  path: string,
+  subject: string,
+): Effect.Effect<string | undefined, InvalidDefinition> =>
+  Effect.gen(function* () {
+    const fileStat = yield* Effect.tryPromise({
+      try: async () => {
+        try {
+          return await lstat(resolve(path));
+        } catch (cause) {
+          if (isMissingFile(cause)) return undefined;
+          throw cause;
+        }
+      },
+      catch: (cause) => operationError(subject, cause),
+    });
+    if (fileStat === undefined) return undefined;
+    if (fileStat.isSymbolicLink() || !fileStat.isFile()) {
+      return yield* Effect.fail(
+        new InvalidDefinition({
+          subject,
+          reason: "indexed SQL path is not a regular file; refusing to regenerate it",
+        }),
+      );
+    }
+    return yield* Effect.tryPromise({
+      try: () => readFile(resolve(path), "utf8"),
+      catch: (cause) => operationError(subject, cause),
+    });
   });
 
 const readJson = <A>(path: string, subject: string): Effect.Effect<A, InvalidDefinition> =>
@@ -357,6 +394,7 @@ const isDirectSqlPath = (path: string): boolean =>
 
 const readOwnedArtifactPaths = (
   output: string,
+  expectedPaths: ReadonlySet<string>,
 ): Effect.Effect<ReadonlySet<string>, InvalidDefinition> =>
   Effect.gen(function* () {
     const entries = yield* Effect.tryPromise({
@@ -380,12 +418,17 @@ const readOwnedArtifactPaths = (
     const owned = new Set<string>();
     for (const file of previous.files) {
       if (!isDirectSqlPath(file.path)) continue;
-      const contents = yield* readText(join(output, file.path), `D1 artifact ${file.path}`).pipe(
-        Effect.option,
-      );
-      if (contents._tag === "Some" && contents.value === renderD1ArtifactFile(file)) {
-        owned.add(file.path);
+      const contents = yield* readOptionalText(join(output, file.path), `D1 artifact ${file.path}`);
+      if (contents === undefined) continue;
+      if (contents !== renderD1ArtifactFile(file)) {
+        return yield* Effect.fail(
+          new InvalidDefinition({
+            subject: `D1 artifact ${file.path}`,
+            reason: "indexed SQL file was edited; refusing to orphan it during regeneration",
+          }),
+        );
       }
+      if (!expectedPaths.has(file.path)) owned.add(file.path);
     }
     return owned;
   });
@@ -405,7 +448,7 @@ const writeArtifactOutput = (
       catch: (cause) => operationError("D1 artifact directory output", cause),
     });
     const expectedPaths = new Set(artifact.files.map((file) => file.path));
-    const previouslyOwnedPaths = yield* readOwnedArtifactPaths(absoluteOutput);
+    const previouslyOwnedPaths = yield* readOwnedArtifactPaths(absoluteOutput, expectedPaths);
     for (const path of previouslyOwnedPaths) {
       if (expectedPaths.has(path)) continue;
       yield* Effect.tryPromise({

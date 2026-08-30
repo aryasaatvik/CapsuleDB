@@ -1,6 +1,15 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Console, Effect, Exit } from "effect";
-import { mkdtemp, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -275,5 +284,168 @@ describe("CapsuleDB manifest CLI", () => {
     assert.strictEqual(Exit.isFailure(missing.exit), true);
     assert.deepStrictEqual(await readdir(missingDirectory), missingBefore);
     assert.strictEqual(await readFile(missingSql, "utf8"), "SELECT missing");
+  });
+
+  it("fails closed when a stale indexed SQL file was edited", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "capsuledb-cli-d1-edited-"));
+    const written = await runCli([
+      "d1",
+      "artifact",
+      "--module",
+      modulePath,
+      "--export",
+      "capsule",
+      "--output",
+      directory,
+      "--json",
+    ]);
+    assert.strictEqual(Exit.isSuccess(written.exit), true);
+
+    const indexPath = join(directory, "artifact.json");
+    const artifactIndex = JSON.parse(await readFile(indexPath, "utf8")) as {
+      files: Array<{ path: string }>;
+    };
+    const firstFile = artifactIndex.files[0];
+    if (firstFile === undefined) throw new Error("artifact index is missing its first file");
+    const originalPath = firstFile.path;
+    firstFile.path = "removed.sql";
+    await writeFile(join(directory, firstFile.path), "SELECT edited");
+    await writeFile(indexPath, `${JSON.stringify(artifactIndex, null, 2)}\n`);
+    const before = await Promise.all([
+      readFile(indexPath, "utf8"),
+      readFile(join(directory, originalPath), "utf8"),
+      readFile(join(directory, "removed.sql"), "utf8"),
+      readdir(directory),
+    ]);
+
+    const regenerated = await runCli([
+      "d1",
+      "artifact",
+      "--module",
+      modulePath,
+      "--export",
+      "capsule",
+      "--output",
+      directory,
+      "--json",
+    ]);
+    assert.strictEqual(Exit.isFailure(regenerated.exit), true);
+    assert.deepStrictEqual(
+      [
+        await readFile(indexPath, "utf8"),
+        await readFile(join(directory, originalPath), "utf8"),
+        await readFile(join(directory, "removed.sql"), "utf8"),
+        await readdir(directory),
+      ],
+      before,
+    );
+  });
+
+  it("fails closed when a stale indexed SQL path is not a regular file", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "capsuledb-cli-d1-non-file-"));
+    const written = await runCli([
+      "d1",
+      "artifact",
+      "--module",
+      modulePath,
+      "--export",
+      "capsule",
+      "--output",
+      directory,
+      "--json",
+    ]);
+    assert.strictEqual(Exit.isSuccess(written.exit), true);
+
+    const indexPath = join(directory, "artifact.json");
+    const artifactIndex = JSON.parse(await readFile(indexPath, "utf8")) as {
+      files: Array<{ path: string }>;
+    };
+    const firstFile = artifactIndex.files[0];
+    if (firstFile === undefined) throw new Error("artifact index is missing its first file");
+    const originalPath = firstFile.path;
+    firstFile.path = "directory.sql";
+    await mkdir(join(directory, firstFile.path));
+    await writeFile(indexPath, `${JSON.stringify(artifactIndex, null, 2)}\n`);
+    const before = await Promise.all([
+      readFile(indexPath, "utf8"),
+      readFile(join(directory, originalPath), "utf8"),
+      readdir(directory),
+    ]);
+    const directoryStat = await lstat(join(directory, firstFile.path));
+    assert.strictEqual(directoryStat.isDirectory(), true);
+
+    const regenerated = await runCli([
+      "d1",
+      "artifact",
+      "--module",
+      modulePath,
+      "--export",
+      "capsule",
+      "--output",
+      directory,
+      "--json",
+    ]);
+    assert.strictEqual(Exit.isFailure(regenerated.exit), true);
+    assert.deepStrictEqual(
+      [
+        await readFile(indexPath, "utf8"),
+        await readFile(join(directory, originalPath), "utf8"),
+        await readdir(directory),
+      ],
+      before,
+    );
+
+    const symlinkDirectory = await mkdtemp(join(tmpdir(), "capsuledb-cli-d1-symlink-"));
+    const symlinkIndexPath = join(symlinkDirectory, "artifact.json");
+    const symlinkWritten = await runCli([
+      "d1",
+      "artifact",
+      "--module",
+      modulePath,
+      "--export",
+      "capsule",
+      "--output",
+      symlinkDirectory,
+      "--json",
+    ]);
+    assert.strictEqual(Exit.isSuccess(symlinkWritten.exit), true);
+    const symlinkIndex = JSON.parse(await readFile(symlinkIndexPath, "utf8")) as {
+      files: Array<{ path: string }>;
+    };
+    const symlinkFile = symlinkIndex.files[0];
+    if (symlinkFile === undefined) throw new Error("artifact index is missing its first file");
+    const symlinkOriginalPath = symlinkFile.path;
+    symlinkFile.path = "symlink.sql";
+    await symlink(
+      join(symlinkDirectory, symlinkOriginalPath),
+      join(symlinkDirectory, symlinkFile.path),
+    );
+    await writeFile(symlinkIndexPath, `${JSON.stringify(symlinkIndex, null, 2)}\n`);
+    const symlinkBefore = await Promise.all([
+      readFile(symlinkIndexPath, "utf8"),
+      readFile(join(symlinkDirectory, symlinkOriginalPath), "utf8"),
+      readdir(symlinkDirectory),
+    ]);
+
+    const symlinkRegenerated = await runCli([
+      "d1",
+      "artifact",
+      "--module",
+      modulePath,
+      "--export",
+      "capsule",
+      "--output",
+      symlinkDirectory,
+      "--json",
+    ]);
+    assert.strictEqual(Exit.isFailure(symlinkRegenerated.exit), true);
+    assert.deepStrictEqual(
+      [
+        await readFile(symlinkIndexPath, "utf8"),
+        await readFile(join(symlinkDirectory, symlinkOriginalPath), "utf8"),
+        await readdir(symlinkDirectory),
+      ],
+      symlinkBefore,
+    );
   });
 });
