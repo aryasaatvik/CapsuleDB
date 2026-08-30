@@ -1,5 +1,5 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
-import { assert, describe, it } from "@effect/vitest";
+import { assert, describe, it, vi } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -165,6 +165,30 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
           FROM "capsule_reference_2e_token_audit"`;
         assert.deepStrictEqual(auditRows, [{ count: 0 }]);
       }),
+    ),
+  );
+
+  it.effect("checks expiry again in the atomic consumption update", () =>
+    withSqlite(
+      Effect.gen(function* () {
+        const capsule = yield* referenceTokenCapsule;
+        const registry = yield* makeRegistry({
+          provider: BunSqliteProfile,
+          capsules: [capsule],
+        });
+        yield* prepare(registry);
+        const sql = yield* Effect.service(SqlClient.SqlClient);
+        const service = yield* Effect.service(OneTimeTokens);
+
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+        const issued = yield* service.issue("2021-01-01T00:00:00.000Z");
+        const failure = yield* service.consume(issued.token).pipe(Effect.flip);
+        assert.strictEqual(failure._tag, "TokenNotFound");
+        const auditRows = yield* sql<{ readonly count: number }>`SELECT COUNT(*) AS count
+          FROM "capsule_reference_2e_token_audit"`;
+        assert.deepStrictEqual(auditRows, [{ count: 0 }]);
+      }).pipe(Effect.ensuring(Effect.sync(() => vi.useRealTimers()))),
     ),
   );
 

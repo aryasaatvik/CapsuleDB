@@ -210,7 +210,10 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
 
           const updated = yield* sql<TokenRow>`UPDATE ${sql(TOKEN_TABLE)}
             SET consumed_at = ${consumedAt}
-            WHERE token_hash = ${tokenHash} AND consumed_at IS NULL AND revoked_at IS NULL
+            WHERE token_hash = ${tokenHash}
+              AND consumed_at IS NULL
+              AND revoked_at IS NULL
+              AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             RETURNING expires_at, consumed_at, revoked_at`;
           if (updated.length === 0) {
             const current = yield* readToken(sql, tokenHash);
