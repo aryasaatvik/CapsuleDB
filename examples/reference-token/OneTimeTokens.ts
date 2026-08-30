@@ -61,6 +61,7 @@ export class OneTimeTokens extends Context.Service<OneTimeTokens, OneTimeTokensS
 interface TokenRow {
   readonly expires_at: string;
   readonly consumed_at: string | null;
+  readonly consumption_id: string | null;
   readonly revoked_at: string | null;
 }
 
@@ -178,6 +179,11 @@ const generateToken = (): Token =>
     ).join(""),
   );
 
+const generateConsumptionId = (): string =>
+  Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+
 const validateExpiry = (
   input: unknown,
   databaseNow: DatabaseInstant,
@@ -200,7 +206,7 @@ const readToken = (
   tokenHash: string,
 ): Effect.Effect<TokenRow | undefined, SqlError> =>
   Effect.gen(function* () {
-    const rows = yield* sql<TokenRow>`SELECT expires_at, consumed_at, revoked_at
+    const rows = yield* sql<TokenRow>`SELECT expires_at, consumed_at, consumption_id, revoked_at
       FROM ${sql(TOKEN_TABLE)} WHERE token_hash = ${tokenHash}`;
     return rows[0];
   });
@@ -247,21 +253,23 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
     Effect.gen(function* () {
       const token = yield* decodeToken(input);
       const tokenHash = yield* digest(token);
+      const consumptionId = generateConsumptionId();
 
       if (isAtomicBatchSql(sql)) {
         const databaseNow = yield* readDatabaseInstant(sql);
         const updatedStatement = sql<TokenRow>`UPDATE ${sql(TOKEN_TABLE)}
-          SET consumed_at = ${databaseNow.iso}
+          SET consumed_at = ${databaseNow.iso}, consumption_id = ${consumptionId}
           WHERE token_hash = ${tokenHash}
             AND consumed_at IS NULL
+            AND consumption_id IS NULL
             AND revoked_at IS NULL
             AND expires_at > ${databaseNow.iso}
-          RETURNING expires_at, consumed_at, revoked_at`;
+          RETURNING expires_at, consumed_at, consumption_id, revoked_at`;
         const auditStatement = sql`INSERT INTO ${sql(AUDIT_TABLE)} (token_hash, consumed_at)
           SELECT ${tokenHash}, ${databaseNow.iso}
           WHERE EXISTS (
             SELECT 1 FROM ${sql(TOKEN_TABLE)}
-            WHERE token_hash = ${tokenHash} AND consumed_at = ${databaseNow.iso}
+            WHERE token_hash = ${tokenHash} AND consumption_id = ${consumptionId}
           )`;
         const results = yield* sql.batch([updatedStatement, auditStatement]);
         const updated = (results[0] ?? []) as ReadonlyArray<TokenRow>;
@@ -296,12 +304,13 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
           }
 
           const updated = yield* sql<TokenRow>`UPDATE ${sql(TOKEN_TABLE)}
-            SET consumed_at = ${databaseNow.iso}
+            SET consumed_at = ${databaseNow.iso}, consumption_id = ${consumptionId}
             WHERE token_hash = ${tokenHash}
               AND consumed_at IS NULL
+              AND consumption_id IS NULL
               AND revoked_at IS NULL
               AND expires_at > ${databaseNow.iso}
-            RETURNING expires_at, consumed_at, revoked_at`;
+            RETURNING expires_at, consumed_at, consumption_id, revoked_at`;
           if (updated.length === 0) {
             const current = yield* readToken(sql, tokenHash);
             if (current?.consumed_at !== null && current?.consumed_at !== undefined) {

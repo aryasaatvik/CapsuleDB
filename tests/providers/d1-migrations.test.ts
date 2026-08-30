@@ -7,6 +7,8 @@ import { D1 } from "../../src/D1.ts";
 import { LedgerConflict } from "../../src/Error.ts";
 import { effectMigrationBody, makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
 import { makeRegistry, prepare } from "../../src/Registry.ts";
+import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
+import { OneTimeTokens } from "../../examples/reference-token/OneTimeTokens.ts";
 import { withD1 } from "./d1.ts";
 
 const limitedD1 = (limits: {
@@ -213,6 +215,46 @@ describe("D1 atomic migration runner", () => {
               })._tag,
             );
           }),
+        ),
+      ),
+    60_000,
+  );
+
+  it.effect(
+    "writes one audit row for concurrent atomic consumes",
+    () =>
+      withD1((client) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const capsule = yield* referenceTokenCapsule;
+            const registry = yield* makeRegistry({
+              provider: D1.profile,
+              capsules: [capsule],
+            });
+            yield* prepare(registry);
+            const service = yield* Effect.service(OneTimeTokens);
+            const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
+            const attempts = yield* Effect.all(
+              [1, 2].map(() =>
+                service.consume(issued.token).pipe(
+                  Effect.match({
+                    onFailure: (error) => ({ _tag: "Failure" as const, error }),
+                    onSuccess: (receipt) => ({ _tag: "Success" as const, receipt }),
+                  }),
+                ),
+              ),
+              { concurrency: "unbounded" },
+            );
+            assert.strictEqual(attempts.filter((attempt) => attempt._tag === "Success").length, 1);
+            assert.strictEqual(attempts.filter((attempt) => attempt._tag === "Failure").length, 1);
+            const failure = attempts.find((attempt) => attempt._tag === "Failure");
+            assert.strictEqual(failure?.error._tag, "TokenAlreadyConsumed");
+            assert.deepStrictEqual(
+              yield* client<{ readonly count: number }>`SELECT COUNT(*) AS count
+                FROM "capsule_reference_2e_token_audit"`,
+              [{ count: 1 }],
+            );
+          }).pipe(Effect.provide(OneTimeTokens.layer)),
         ),
       ),
     60_000,
