@@ -92,6 +92,7 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings src tests tools tsdown.config.ts vitest.config.ts vitest.setup.ts oxlint.config.ts",
+    "release:check": "bun run build && bun ./tools/release-check.ts",
     "test": "bun ./node_modules/vitest/vitest.mjs run --exclude tests/artifact/**/*.test.ts",
     "test:providers": "bun ./node_modules/vitest/vitest.mjs run tests/providers tests/conformance tests/lifecycle",
     "test:artifact": "bun run build && vitest run tests/artifact",

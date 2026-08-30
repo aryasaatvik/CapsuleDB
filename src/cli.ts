@@ -1,8 +1,10 @@
+#!/usr/bin/env node
 import { Console, Effect } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   buildD1Artifact,
@@ -341,7 +343,12 @@ export const run = (args: ReadonlyArray<string>): Effect.Effect<void, unknown, n
 
 const isInvokedDirectly = (): boolean => {
   const invokedPath = process.argv[1];
-  return invokedPath !== undefined && pathToFileURL(resolve(invokedPath)).href === import.meta.url;
+  if (invokedPath === undefined) return false;
+  try {
+    return realpathSync(invokedPath) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
 };
 
 const writeArtifactOutput = (
