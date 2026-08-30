@@ -94,7 +94,9 @@ const parseIsoTimestamp = (input: unknown): number | undefined => {
   if (timezone !== "Z") {
     const offsetHour = Number(timezone.slice(1, 3));
     const offsetMinute = Number(timezone.slice(4, 6));
-    if (offsetHour > 23 || offsetMinute > 59) return undefined;
+    if (offsetHour > 14 || offsetMinute > 59 || (offsetHour === 14 && offsetMinute !== 0)) {
+      return undefined;
+    }
   }
 
   const timestamp = Date.parse(input);

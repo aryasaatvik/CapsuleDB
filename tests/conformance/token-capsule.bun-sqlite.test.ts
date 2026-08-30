@@ -56,6 +56,8 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
         const service = yield* Effect.service(OneTimeTokens);
         const invalidExpiry = yield* service.issue("01/01/2099").pipe(Effect.flip);
         assert.strictEqual(invalidExpiry._tag, "InvalidToken");
+        const invalidOffset = yield* service.issue("2099-01-01T00:00:00+14:01").pipe(Effect.flip);
+        assert.strictEqual(invalidOffset._tag, "InvalidToken");
         const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
         const consumed = yield* service.consume(issued.token);
         assert.strictEqual(consumed.token, issued.token);
