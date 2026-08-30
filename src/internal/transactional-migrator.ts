@@ -43,13 +43,10 @@ export const runTransactionalMigration = (
         return;
       }
 
-      // Effect migration bodies are allowed only for transactional profiles.
-      // Supplying the exact host client preserves composition with callers that
-      // use the transaction service directly (for example Effect Drizzle).
-      // SAFETY: the heterogeneous registry intentionally erases a migration's
-      // extra requirements; callers provide those services in the surrounding
-      // Effect environment. The package-owned SQL requirement is injected
-      // here, and all migration failures are classified before returning.
+      // Effect migration bodies are allowed only for transactional profiles
+      // and are constrained to the host SQL client by the public constructor.
+      // Supplying this exact client preserves composition with callers that use
+      // the transaction service directly (for example Effect Drizzle).
       const execute = options.body.execute.pipe(
         Effect.provideService(SqlClient.SqlClient, options.sql),
         Effect.mapError(
@@ -58,7 +55,7 @@ export const runTransactionalMigration = (
               reason: `Effect migration failed: ${String(cause)}`,
             }),
         ),
-      ) as Effect.Effect<void, PreparationFailed, never>;
+      );
       yield* execute;
     }),
   );

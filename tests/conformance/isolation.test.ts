@@ -129,31 +129,4 @@ describe("CapsuleDB capsule isolation", () => {
       assert.strictEqual(collision._tag, "NamespaceCollision");
     }),
   );
-
-  it.effect("rejects migration SQL that names another capsule's namespace", () =>
-    Effect.gen(function* () {
-      const first = yield* makeEmptyCapsule("physical.first");
-      const foreignTable = `${first.namespace}_private`;
-      const migration = yield* makeMigration({
-        id: 1,
-        name: "references-peer-table",
-        risk: "additive",
-        providers: {
-          Sqlite: sqlMigrationBody(`CREATE INDEX peer_index ON "${foreignTable}" (value)`, [
-            `CREATE INDEX peer_index ON "${foreignTable}" (value)`,
-          ]),
-        },
-      });
-      const second = yield* makeCapsule({
-        id: "physical.second",
-        migrations: [migration],
-        layer: Layer.empty,
-      });
-      const failure = yield* makeRegistry({
-        provider: BunSqliteProfile,
-        capsules: [first, second],
-      }).pipe(Effect.flip);
-      assert.strictEqual(failure._tag, "InvalidDefinition");
-    }),
-  );
 });

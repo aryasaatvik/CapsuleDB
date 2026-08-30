@@ -40,15 +40,18 @@ export interface SqlMigrationBody {
 }
 
 /** An Effect migration body for providers that explicitly support it. */
-export interface EffectMigrationBody<Failure = unknown, Requirements = unknown> {
+export interface EffectMigrationBody<Failure = unknown> {
   readonly _tag: "Effect";
   readonly source: string;
-  readonly execute: Effect.Effect<void, Failure, Requirements>;
+  /**
+   * Effect migrations may use the host SQL client only. Keeping this
+   * environment exact lets preparation provide the same client transaction
+   * without erasing missing-service defects behind the migration boundary.
+   */
+  readonly execute: Effect.Effect<void, Failure, SqlClient.SqlClient>;
 }
 
-export type MigrationBody<Failure = unknown, Requirements = unknown> =
-  | SqlMigrationBody
-  | EffectMigrationBody<Failure, Requirements>;
+export type MigrationBody<Failure = unknown> = SqlMigrationBody | EffectMigrationBody<Failure>;
 
 /**
  * Schema-visible migration mode metadata. Function bodies remain runtime
@@ -70,31 +73,31 @@ export type MigrationMode = typeof MigrationMode.Type;
 export type ProviderDialectTag = ProviderDialect["_tag"];
 
 /** Provider-specific implementations for one logical migration. */
-export type MigrationImplementations<Failure = unknown, Requirements = unknown> = Readonly<
-  Partial<Record<ProviderDialectTag, MigrationBody<Failure, Requirements>>>
+export type MigrationImplementations<Failure = unknown> = Readonly<
+  Partial<Record<ProviderDialectTag, MigrationBody<Failure>>>
 >;
 
 /** One logical migration history entry shared across provider implementations. */
-export interface Migration<Failure = unknown, Requirements = unknown> {
+export interface Migration<Failure = unknown> {
   readonly id: MigrationId;
   readonly name: MigrationName;
   readonly risk: MigrationRisk;
-  readonly providers: MigrationImplementations<Failure, Requirements>;
+  readonly providers: MigrationImplementations<Failure>;
 }
 
-export interface MigrationOptions<Failure = unknown, Requirements = SqlClient.SqlClient> {
+export interface MigrationOptions<Failure = unknown> {
   readonly id: unknown;
   readonly name: unknown;
   readonly risk: unknown;
-  readonly providers: MigrationImplementations<Failure, Requirements>;
+  readonly providers: MigrationImplementations<Failure>;
 }
 
 export type MigrationDefinitionError = InvalidDefinition;
 
 /** Construct a validated logical migration at an authoring boundary. */
-export const makeMigration = <Failure = unknown, Requirements = SqlClient.SqlClient>(
-  options: MigrationOptions<Failure, Requirements>,
-): Effect.Effect<Migration<Failure, Requirements>, MigrationDefinitionError> =>
+export const makeMigration = <Failure = unknown>(
+  options: MigrationOptions<Failure>,
+): Effect.Effect<Migration<Failure>, MigrationDefinitionError> =>
   Effect.gen(function* () {
     const decode = <A>(
       schema: Schema.ConstraintDecoder<A, never>,
@@ -139,10 +142,10 @@ export const sqlMigrationBody = (
   });
 
 /** Construct an Effect body while retaining its typed error and environment. */
-export const effectMigrationBody = <Failure, Requirements>(
+export const effectMigrationBody = <Failure>(
   source: string,
-  execute: Effect.Effect<void, Failure, Requirements>,
-): EffectMigrationBody<Failure, Requirements> =>
+  execute: Effect.Effect<void, Failure, SqlClient.SqlClient>,
+): EffectMigrationBody<Failure> =>
   Object.freeze({
     _tag: "Effect" as const,
     source,

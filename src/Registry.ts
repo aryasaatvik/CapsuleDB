@@ -114,29 +114,6 @@ export const makeRegistry = (options: RegistryOptions): Effect.Effect<Registry, 
         }
         seenMigrationIds.push(migration.id);
 
-        // Migration SQL is package-owned, but a registry still knows every
-        // canonical physical namespace in its composition. Reject a source
-        // that names another registered capsule's namespace before any client
-        // is touched. Runtime service layers remain opaque public contracts;
-        // they do not receive peer capsule table handles from this package.
-        for (const body of Object.values(migration.providers)) {
-          if (body === undefined) continue;
-          const sources = body._tag === "Sql" ? [body.source, ...body.statements] : [body.source];
-          const peer = options.capsules.find(
-            (candidate) =>
-              candidate.id !== capsule.id &&
-              sources.some((source) => source.includes(candidate.namespace)),
-          );
-          if (peer !== undefined) {
-            return yield* Effect.fail(
-              new InvalidDefinition({
-                subject: `capsule ${capsule.id} migration ${migration.id}`,
-                reason: `migration source references peer capsule namespace ${peer.namespace}`,
-              }),
-            );
-          }
-        }
-
         const implementation = migration.providers[provider.dialect._tag];
         if (implementation === undefined) {
           return yield* Effect.fail(
@@ -436,7 +413,11 @@ const applyTransactional = (
 
     if (outcome._tag === "Failure") {
       const reread = yield* readLedger(sql, capsule.id, migration.id);
-      if (reread !== undefined && reread.checksum === manifestMigration.checksum) {
+      if (
+        reread !== undefined &&
+        reread.checksum === manifestMigration.checksum &&
+        reread.name === migration.name
+      ) {
         yield* Effect.logDebug("CapsuleDB migration conflict converged").pipe(
           Effect.annotateLogs("capsule_id", capsule.id),
           Effect.annotateLogs("migration_id", String(migration.id)),
@@ -445,7 +426,7 @@ const applyTransactional = (
         return;
       }
       if (reread !== undefined) {
-        yield* Effect.logWarning("CapsuleDB migration checksum diverged").pipe(
+        yield* Effect.logWarning("CapsuleDB migration ledger diverged").pipe(
           Effect.annotateLogs("capsule_id", capsule.id),
           Effect.annotateLogs("migration_id", String(migration.id)),
           Effect.annotateLogs("outcome", "divergence"),
@@ -505,7 +486,11 @@ const applyD1 = (
 
     if (outcome._tag === "Failure") {
       const reread = yield* readLedger(sql, capsule.id, migration.id);
-      if (reread !== undefined && reread.checksum === manifestMigration.checksum) {
+      if (
+        reread !== undefined &&
+        reread.checksum === manifestMigration.checksum &&
+        reread.name === migration.name
+      ) {
         yield* Effect.logDebug("CapsuleDB D1 migration conflict converged").pipe(
           Effect.annotateLogs("capsule_id", capsule.id),
           Effect.annotateLogs("migration_id", String(migration.id)),
@@ -514,7 +499,7 @@ const applyD1 = (
         return;
       }
       if (reread !== undefined) {
-        yield* Effect.logWarning("CapsuleDB D1 migration checksum diverged").pipe(
+        yield* Effect.logWarning("CapsuleDB D1 migration ledger diverged").pipe(
           Effect.annotateLogs("capsule_id", capsule.id),
           Effect.annotateLogs("migration_id", String(migration.id)),
           Effect.annotateLogs("outcome", "divergence"),
@@ -768,6 +753,20 @@ export const prepare = (
       );
       return yield* Effect.fail(
         new ProviderMismatch({ dialect: expectedProvider, mode: metadata.provider }),
+      );
+    }
+
+    // A ledger without its metadata cannot identify which provider's physical
+    // bodies were applied. Refuse to treat the rows as complete: otherwise a
+    // provider switch could skip its own bodies and merely recreate metadata.
+    const firstLedgerRow = ledgerRows[0];
+    if (metadata === undefined && firstLedgerRow !== undefined) {
+      return yield* Effect.fail(
+        new PartialMigration({
+          capsuleId: firstLedgerRow.capsule_id,
+          migrationId: firstLedgerRow.migration_id,
+          reason: "migration ledger contains rows but readiness metadata is missing",
+        }),
       );
     }
 

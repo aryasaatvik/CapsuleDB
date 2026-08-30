@@ -84,6 +84,7 @@
     "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings src tests tsdown.config.ts vitest.config.ts vitest.setup.ts oxlint.config.ts",
     "test": "bun ./node_modules/vitest/vitest.mjs run --exclude tests/artifact/**/*.test.ts",
+    "test:providers": "bun ./node_modules/vitest/vitest.mjs run tests/providers tests/conformance tests/lifecycle",
     "test:artifact": "bun run build && vitest run tests/artifact",
     "test:types": "tstyche --config tstyche.config.json --target '>=5.9'",
     "typecheck": "tsc --noEmit"

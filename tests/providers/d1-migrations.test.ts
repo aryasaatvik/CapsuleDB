@@ -1,8 +1,10 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { makeCapsule } from "../../src/Capsule.ts";
 import { D1 } from "../../src/D1.ts";
+import { LedgerConflict } from "../../src/Error.ts";
 import { effectMigrationBody, makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
 import { makeRegistry, prepare } from "../../src/Registry.ts";
 import { withD1 } from "./d1.ts";
@@ -150,6 +152,65 @@ describe("D1 atomic migration runner", () => {
               yield* client<{ readonly count: number }>`SELECT COUNT(*) AS count
                 FROM "capsuledb_registry_ledger" WHERE capsule_id = 'd1.concurrent'`,
               [{ count: 1 }],
+            );
+          }),
+        ),
+      ),
+    60_000,
+  );
+
+  it.effect(
+    "does not converge a D1 conflict when the ledger name diverges",
+    () =>
+      withD1((client) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const migration = yield* makeMigration({
+              id: 1,
+              name: "d1-name-conflict",
+              risk: "additive",
+              providers: {
+                D1: sqlMigrationBody(
+                  'CREATE TABLE "d1_name_conflict" (id TEXT PRIMARY KEY NOT NULL)',
+                  ['CREATE TABLE "d1_name_conflict" (id TEXT PRIMARY KEY NOT NULL)'],
+                ),
+              },
+            });
+            const capsule = yield* makeCapsule({
+              id: "d1.name-conflict",
+              migrations: [migration],
+              layer: Layer.empty,
+            });
+            const registry = yield* makeRegistry({
+              provider: D1.profile,
+              capsules: [capsule],
+            });
+            const conflictClient = new Proxy(client, {
+              get(target, property, receiver) {
+                if (property !== "batch") return Reflect.get(target, property, receiver);
+                return (statements: Parameters<typeof target.batch>[0]) =>
+                  target.batch(statements).pipe(
+                    Effect.flatMap(() =>
+                      target.unsafe(`UPDATE "capsuledb_registry_ledger"
+                        SET name = 'different-d1-name'
+                        WHERE capsule_id = 'd1.name-conflict' AND migration_id = 1`),
+                    ),
+                    Effect.flatMap(() => target.unsafe("THIS IS NOT VALID SQL")),
+                  );
+              },
+            }) as unknown as SqlClient.SqlClient;
+            const failure = yield* prepare(registry).pipe(
+              Effect.provideService(SqlClient.SqlClient, conflictClient),
+              Effect.flip,
+            );
+            assert.strictEqual(
+              failure._tag,
+              new LedgerConflict({
+                capsuleId: "d1.name-conflict",
+                migrationId: 1,
+                expected: "ignored",
+                actual: "ignored",
+              })._tag,
             );
           }),
         ),

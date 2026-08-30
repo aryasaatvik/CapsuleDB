@@ -40,10 +40,25 @@ describe("packed exports", () => {
         join(directory, "consumer.mjs"),
         `
 import { VERSION } from "capsuledb";
+import { D1 as D1Subpath } from "capsuledb/D1";
+import { Libsql as LibsqlSubpath } from "capsuledb/Libsql";
+import { Pg as PgSubpath } from "capsuledb/Pg";
+import { D1, Libsql, Pg } from "capsuledb";
 import packageJson from "capsuledb/package.json" with { type: "json" };
 
 if (VERSION !== packageJson.version || VERSION !== ${JSON.stringify(packageJson.version)}) {
   throw new Error("Packed public export does not match package metadata");
+}
+
+const providerProfiles = [
+  [D1, D1Subpath, "D1"],
+  [Pg, PgSubpath, "Postgres"],
+  [Libsql, LibsqlSubpath, "Libsql"],
+];
+for (const [rootProvider, subpathProvider, dialect] of providerProfiles) {
+  if (rootProvider.profile.dialect._tag !== dialect || subpathProvider.profile.dialect._tag !== dialect) {
+    throw new Error("Packed provider profile mismatch for " + dialect);
+  }
 }
 
 try {

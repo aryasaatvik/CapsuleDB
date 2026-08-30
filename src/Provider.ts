@@ -182,6 +182,3 @@ export const providerCapabilityMatrix = Object.freeze(
     ...profile.capabilities,
   })),
 );
-
-/** Naming aliases for callers that use the provider's database spelling. */
-export const LibSQLProfile = LibsqlProfile;
