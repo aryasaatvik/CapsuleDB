@@ -15,7 +15,12 @@ import {
   ProviderMismatch,
   type CapsuleError,
 } from "./Error.ts";
-import type { Migration, MigrationBody, MigrationImplementations } from "./Migration.ts";
+import {
+  resolveMigrationImplementation,
+  type Migration,
+  type MigrationBody,
+  type MigrationImplementations,
+} from "./Migration.ts";
 import { providerDialectTags, type ProviderProfile } from "./Provider.ts";
 import { sha256 } from "./internal/checksum.ts";
 
@@ -28,6 +33,7 @@ export const Checksum = Schema.String.pipe(
 export type Checksum = typeof Checksum.Type;
 
 const ManifestDialect = Schema.Union([
+  Schema.Literal("BunSqlite"),
   Schema.Literal("Sqlite"),
   Schema.Literal("Libsql"),
   Schema.Literal("Postgres"),
@@ -38,18 +44,17 @@ const ManifestDialect = Schema.Union([
 export const ManifestProvider = Schema.TaggedUnion({
   Sql: {
     dialect: ManifestDialect,
-    source: Schema.String,
     statements: Schema.Array(Schema.String),
   },
   Effect: {
     dialect: ManifestDialect,
-    source: Schema.String,
+    revision: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(256))),
   },
 });
 
 export type ManifestProvider = typeof ManifestProvider.Type;
 
-/** One logical migration's checksum and provider source metadata. */
+/** One logical migration's checksum and provider body metadata. */
 export const ManifestMigration = Schema.Struct({
   id: Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)), Schema.brand("MigrationId")),
   name: Schema.String.pipe(
@@ -118,13 +123,12 @@ const manifestBody = (
     ? {
         _tag: "Sql",
         dialect,
-        source: body.source,
         statements: [...body.statements],
       }
     : {
         _tag: "Effect",
         dialect,
-        source: body.source,
+        revision: body.revision,
       };
 
 const manifestBodies = (providers: MigrationImplementations): ReadonlyArray<ManifestProvider> => {
@@ -141,13 +145,12 @@ const canonicalBody = (body: ManifestProvider): Readonly<Record<string, unknown>
     ? {
         mode: body._tag,
         dialect: body.dialect,
-        source: body.source,
         statements: body.statements,
       }
     : {
         mode: body._tag,
         dialect: body.dialect,
-        source: body.source,
+        revision: body.revision,
       };
 
 const canonicalMigration = (
@@ -188,13 +191,12 @@ const canonicalManifest = (version: 1, capsules: ReadonlyArray<ManifestCapsule>)
             ? {
                 mode: provider._tag,
                 dialect: provider.dialect,
-                source: provider.source,
                 statements: provider.statements,
               }
             : {
                 mode: provider._tag,
                 dialect: provider.dialect,
-                source: provider.source,
+                revision: provider.revision,
               },
         ),
       })),
@@ -247,16 +249,16 @@ const validateCapsuleMigrations = (
         return yield* Effect.fail(
           new InvalidDefinition({
             subject: `migration ${migration.id}`,
-            reason: "at least one provider source is required",
+            reason: "at least one provider implementation is required",
           }),
         );
       }
       for (const body of providers) {
-        if (body.source.length === 0) {
+        if (body._tag === "Sql" && body.statements.length === 0) {
           return yield* Effect.fail(
             new InvalidDefinition({
-              subject: `migration ${migration.id} source`,
-              reason: "source text must not be empty",
+              subject: `migration ${migration.id} statements`,
+              reason: "SQL statements must not be empty",
             }),
           );
         }
@@ -296,7 +298,7 @@ const validateCapsuleIdentity = (
     }
   });
 
-/** Build a deterministic manifest from explicit in-memory migration sources. */
+/** Build a deterministic manifest from explicit in-memory migration bodies. */
 export const buildManifest = (
   options: ManifestBuildOptions,
 ): Effect.Effect<Manifest, ManifestError> =>
@@ -397,7 +399,7 @@ const validatePublishedStructure = (manifest: Manifest): Effect.Effect<void, Man
           return yield* Effect.fail(
             new InvalidDefinition({
               subject: `manifest migration ${migration.id}`,
-              reason: "at least one provider source is required",
+              reason: "at least one provider implementation is required",
             }),
           );
         }
@@ -474,7 +476,7 @@ const validateProviderBodies = (
   Effect.gen(function* () {
     for (const capsule of capsules) {
       for (const migration of capsule.migrations) {
-        const body = migration.providers[provider.dialect._tag];
+        const body = resolveMigrationImplementation(migration, provider);
         if (body === undefined) {
           return yield* Effect.fail(
             new MissingProviderMigration({

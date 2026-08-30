@@ -47,7 +47,7 @@ export class MigrationNameDrift extends Schema.TaggedError<MigrationNameDrift>()
   { migrationId: Schema.Number, expected: Schema.String, actual: Schema.String },
 ) {}
 
-/** An already-known logical migration changed its source checksum. */
+/** An already-known logical migration changed its canonical checksum. */
 export class MigrationChecksumDrift extends Schema.TaggedError<MigrationChecksumDrift>()(
   "MigrationChecksumDrift",
   { migrationId: Schema.Number, expected: Schema.String, actual: Schema.String },
