@@ -355,8 +355,26 @@ const isInvokedDirectly = (): boolean => {
 const isDirectSqlPath = (path: string): boolean =>
   path.length > 0 && path.endsWith(".sql") && basename(path) === path;
 
-const readOwnedArtifactPaths = (output: string): Effect.Effect<ReadonlySet<string>, never> =>
+const readOwnedArtifactPaths = (
+  output: string,
+): Effect.Effect<ReadonlySet<string>, InvalidDefinition> =>
   Effect.gen(function* () {
+    const entries = yield* Effect.tryPromise({
+      try: () => readdir(resolve(output)),
+      catch: (cause) => operationError("D1 artifact directory", cause),
+    });
+    if (!entries.includes("artifact.json")) {
+      const sqlEntry = entries.find((entry) => entry.endsWith(".sql"));
+      if (sqlEntry !== undefined) {
+        return yield* Effect.fail(
+          new InvalidDefinition({
+            subject: "D1 artifact directory",
+            reason: `cannot regenerate safely: artifact.json is missing while SQL file ${sqlEntry} exists`,
+          }),
+        );
+      }
+      return new Set<string>();
+    }
     const previousInput = yield* readJson<unknown>(join(output, "artifact.json"), "D1 artifact");
     const previous = yield* decodeD1Artifact(previousInput);
     const owned = new Set<string>();
@@ -370,7 +388,7 @@ const readOwnedArtifactPaths = (output: string): Effect.Effect<ReadonlySet<strin
       }
     }
     return owned;
-  }).pipe(Effect.orElseSucceed(() => new Set<string>()));
+  });
 
 const writeArtifactOutput = (
   output: string,

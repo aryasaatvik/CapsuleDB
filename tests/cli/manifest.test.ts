@@ -223,4 +223,57 @@ describe("CapsuleDB manifest CLI", () => {
       files: artifact.files.map((file) => file.path),
     });
   });
+
+  it("fails closed without mutating directories that lack a usable artifact index", async () => {
+    const malformedDirectory = await mkdtemp(join(tmpdir(), "capsuledb-cli-d1-malformed-"));
+    const malformedIndex = join(malformedDirectory, "artifact.json");
+    const malformedSql = join(malformedDirectory, "obsolete.sql");
+    await writeFile(malformedIndex, "{not valid json}\n");
+    await writeFile(malformedSql, "SELECT malformed");
+    const malformedBefore = await Promise.all([
+      readFile(malformedIndex, "utf8"),
+      readFile(malformedSql, "utf8"),
+      readdir(malformedDirectory),
+    ]);
+
+    const malformed = await runCli([
+      "d1",
+      "artifact",
+      "--module",
+      modulePath,
+      "--export",
+      "capsule",
+      "--output",
+      malformedDirectory,
+      "--json",
+    ]);
+    assert.strictEqual(Exit.isFailure(malformed.exit), true);
+    assert.deepStrictEqual(
+      [
+        await readFile(malformedIndex, "utf8"),
+        await readFile(malformedSql, "utf8"),
+        await readdir(malformedDirectory),
+      ],
+      malformedBefore,
+    );
+
+    const missingDirectory = await mkdtemp(join(tmpdir(), "capsuledb-cli-d1-missing-"));
+    const missingSql = join(missingDirectory, "obsolete.sql");
+    await writeFile(missingSql, "SELECT missing");
+    const missingBefore = await readdir(missingDirectory);
+    const missing = await runCli([
+      "d1",
+      "artifact",
+      "--module",
+      modulePath,
+      "--export",
+      "capsule",
+      "--output",
+      missingDirectory,
+      "--json",
+    ]);
+    assert.strictEqual(Exit.isFailure(missing.exit), true);
+    assert.deepStrictEqual(await readdir(missingDirectory), missingBefore);
+    assert.strictEqual(await readFile(missingSql, "utf8"), "SELECT missing");
+  });
 });
