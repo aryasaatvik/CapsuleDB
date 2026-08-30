@@ -22,6 +22,7 @@ export interface D1Migration {
   readonly migrationId: number;
   readonly name: string;
   readonly checksum: string;
+  readonly provider: string;
   readonly body: MigrationBody;
 }
 
@@ -62,9 +63,9 @@ export const compileD1Migration = (
 
     const statements: Array<Statement.Statement<unknown>> = [
       options.sql`INSERT INTO ${options.sql(LEDGER_TABLE)}
-        (capsule_id, migration_id, name, checksum, applied_at)
+        (capsule_id, migration_id, name, checksum, applied_at, provider)
         VALUES (${options.capsuleId}, ${options.migrationId}, ${options.name},
-          ${options.checksum}, ${new Date().toISOString()})`,
+          ${options.checksum}, ${new Date().toISOString()}, ${options.provider})`,
       ...options.body.statements.map((statement) => options.sql.unsafe(statement)),
     ];
 
