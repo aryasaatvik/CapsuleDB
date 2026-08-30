@@ -45,16 +45,17 @@ export const capsule = Effect.gen(function* () {
 });
 ```
 
-The migration `source` is authored text used for deterministic checksums. For
-static SQL bodies, `statements` is the exact sequence sent to the provider.
-Transactional providers may use an Effect body when the provider supports it;
-the source text remains explicit because executable functions are never placed
-in a manifest. D1 accepts only static SQL bodies.
+For static SQL bodies, `statements` is the exact sequence sent to the provider
+and is the sole source of SQL integrity checksums. Transactional providers may
+use an Effect body when the provider supports it; provide an immutable
+author-assigned `revision` because executable functions are never placed in a
+manifest and CapsuleDB cannot claim function equivalence. D1 accepts only
+static SQL bodies.
 
 ## Migration rules
 
 - Start at migration ID `1` and append contiguous IDs (`2`, `3`, ...).
-- Keep an applied migration's ID, name, risk classification, provider source,
+- Keep an applied migration's ID, name, risk classification, provider body,
   and statements unchanged. A changed name or body is checksum drift, not an
   edit to apply in place.
 - Mark an operation `destructive` when it removes or rewrites data/schema.

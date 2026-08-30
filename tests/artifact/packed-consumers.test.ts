@@ -47,14 +47,14 @@ import {
   buildD1Artifact,
   buildManifest,
   makeRegistry,
-  plan,
+  manifestPlan,
   VERSION,
 } from "capsuledb";
 import { capsule, ReferenceService } from "./capsule.mjs";
 
 const manifest = await Effect.runPromise(buildManifest({ capsules: [capsule] }));
 const registry = await Effect.runPromise(makeRegistry({ provider: D1.profile, capsules: [capsule] }));
-const registryPlan = await Effect.runPromise(plan(registry));
+const registryPlan = await Effect.runPromise(manifestPlan(registry));
 const artifact = await Effect.runPromise(buildD1Artifact(manifest));
 const service = await Effect.runPromise(
   Effect.service(ReferenceService).pipe(Effect.provide(capsule.layer)),

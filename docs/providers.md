@@ -1,15 +1,15 @@
 # Provider capability matrix
 
-Provider dialect and execution capability are separate parts of the public
-contract. Select the profile that matches the host client and keep the same
+Provider identity, SQL dialect, and execution capability are separate parts of
+the public contract. Select the profile that matches the host client and keep the same
 logical migration history across providers.
 
 | Profile             | Dialect    | Execution     | Effect bodies | Streaming | Notes                                                                       |
 | ------------------- | ---------- | ------------- | ------------- | --------- | --------------------------------------------------------------------------- |
-| `SqliteBun.profile` | SQLite     | Transactional | Supported     | No        | Host-owned Bun SQLite client.                                               |
-| `Libsql.profile`    | libSQL     | Transactional | Supported     | No        | Host-owned libSQL client.                                                   |
+| `SqliteBun.profile` | SQLite     | Transactional | Supported     | No        | Host-owned Bun SQLite client; distinct provider identity.                   |
+| `Libsql.profile`    | SQLite     | Transactional | Supported     | No        | Host-owned libSQL client; uses SQLite dialect defaults.                     |
 | `Pg.profile`        | PostgreSQL | Transactional | Supported     | Yes       | Host-owned PostgreSQL client; preparation serializes with an advisory lock. |
-| `D1.profile`        | D1         | Atomic batch  | Not supported | No        | No interactive transactions, savepoints, or streams.                        |
+| `D1.profile`        | SQLite     | Atomic batch  | Not supported | No        | D1 identity with bounded atomic batches; no interactive transactions.       |
 
 The table is derived from the profiles exported by `capsuledb`:
 
@@ -17,7 +17,7 @@ The table is derived from the profiles exported by `capsuledb`:
 import { providerCapabilityMatrix } from "capsuledb";
 
 for (const profile of providerCapabilityMatrix) {
-  console.log(profile.dialect, profile._tag);
+  console.log(profile.provider, profile.dialect, profile.execution);
 }
 ```
 

@@ -29,23 +29,23 @@ bun run capsuledb -- d1 check \
   --json
 ```
 
-Changing an applied migration's ID, name, source, provider body, or statement
+Changing an applied migration's ID, name, provider body, or statement
 sequence changes its checksum and fails closed. Create a new migration instead
 of editing history. A gap or reordered history is rejected before provider
 state is touched.
 
 ## Startup states
 
-| State or failure                   | Meaning                                                                   | Host action                                                                     |
-| ---------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `Pending`                          | No complete active history is recorded yet.                               | Run `prepare` in the startup phase.                                             |
-| `Ready`                            | Fingerprint, provider, and every active ledger row agree.                 | Expose the service layer.                                                       |
-| `Stale` / `NotReady`               | Metadata or ledger does not match the current registry.                   | Keep the host unavailable; inspect the history and rerun `prepare`.             |
-| `DestructiveMigrationUnauthorized` | A pending destructive migration was found without explicit authorization. | Obtain deployment approval, then pass `allowDestructive: true`.                 |
-| `DatabaseAhead`                    | The active database has a migration absent from registered code.          | Restore the exact code or investigate before changing the registry.             |
-| `LedgerConflict` / checksum drift  | Applied name or body differs from the registered history.                 | Do not edit the applied entry; restore matching source or plan a new migration. |
-| `PartialMigration`                 | Ledger and readiness metadata describe an incomplete state.               | Keep services hidden and repair from a backup/provider-specific runbook.        |
-| `ProviderMismatch`                 | Persisted metadata was produced for another provider profile.             | Use the original provider or perform an explicit, reviewed migration.           |
+| State or failure                   | Meaning                                                                   | Host action                                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Pending`                          | No complete active history is recorded yet.                               | Run `prepare` in the startup phase.                                                 |
+| `Ready`                            | Fingerprint, provider, and every active ledger row agree.                 | Expose the service layer.                                                           |
+| `Stale` / `NotReady`               | Metadata or ledger does not match the current registry.                   | Keep the host unavailable; inspect the history and rerun `prepare`.                 |
+| `DestructiveMigrationUnauthorized` | A pending destructive migration was found without explicit authorization. | Obtain deployment approval, then pass `allowDestructive: true`.                     |
+| `DatabaseAhead`                    | The active database has a migration absent from registered code.          | Restore the exact code or investigate before changing the registry.                 |
+| `LedgerConflict` / checksum drift  | Applied name or body differs from the registered history.                 | Do not edit the applied entry; restore matching statements or plan a new migration. |
+| `PartialMigration`                 | Ledger and readiness metadata describe an incomplete state.               | Keep services hidden and repair from a backup/provider-specific runbook.            |
+| `ProviderMismatch`                 | Persisted metadata was produced for another provider profile.             | Use the original provider or perform an explicit, reviewed migration.               |
 
 ## D1-specific recovery
 

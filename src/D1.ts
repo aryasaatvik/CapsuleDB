@@ -5,6 +5,4 @@ import { D1Profile } from "./Provider.ts";
  * D1's bounded atomic batch primitive and never creates, closes, or replaces
  * the host-owned binding.
  */
-export const D1 = Object.freeze({
-  profile: D1Profile,
-});
+export const profile = D1Profile;
