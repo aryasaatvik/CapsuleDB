@@ -19,6 +19,9 @@
     "type": "git",
     "url": "git+https://github.com/aryasaatvik/CapsuleDB.git"
   },
+  "bin": {
+    "capsuledb": "./dist/cli.mjs"
+  },
   "files": [
     "dist",
     "LICENSE",
@@ -38,6 +41,10 @@
     "./D1": {
       "types": "./dist/D1.d.mts",
       "import": "./dist/D1.mjs"
+    },
+    "./D1Artifact": {
+      "types": "./dist/D1Artifact.d.mts",
+      "import": "./dist/D1Artifact.mjs"
     },
     "./Error": {
       "types": "./dist/Error.d.mts",
@@ -79,6 +86,7 @@
   },
   "scripts": {
     "build": "tsdown",
+    "capsuledb": "bun ./src/cli.ts",
     "clean": "rm -rf dist coverage",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
