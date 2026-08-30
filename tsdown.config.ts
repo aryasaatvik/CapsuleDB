@@ -6,6 +6,7 @@ export default defineConfig({
   entry: {
     Capsule: "src/Capsule.ts",
     D1: "src/D1.ts",
+    D1Artifact: "src/D1Artifact.ts",
     Error: "src/Error.ts",
     index: "src/index.ts",
     Migration: "src/Migration.ts",
@@ -16,6 +17,7 @@ export default defineConfig({
     Readiness: "src/Readiness.ts",
     Registry: "src/Registry.ts",
     SqliteBun: "src/SqliteBun.ts",
+    cli: "src/cli.ts",
   },
   fixedExtension: true,
   format: "esm",

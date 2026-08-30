@@ -77,6 +77,54 @@ export class ProviderMismatch extends Schema.TaggedError<ProviderMismatch>()("Pr
   mode: Schema.String,
 }) {}
 
+/** A D1 artifact tried to project a dynamic or otherwise unsupported body. */
+export class D1ArtifactUnsupportedBody extends Schema.TaggedError<D1ArtifactUnsupportedBody>()(
+  "D1ArtifactUnsupportedBody",
+  {
+    capsuleId: Schema.String,
+    migrationId: Schema.Number,
+    mode: Schema.String,
+  },
+) {}
+
+/** A D1 artifact was produced from a different manifest fingerprint. */
+export class D1ArtifactStale extends Schema.TaggedError<D1ArtifactStale>()("D1ArtifactStale", {
+  expectedFingerprint: Schema.String,
+  actualFingerprint: Schema.String,
+}) {}
+
+/** A generated D1 artifact is missing a migration file. */
+export class D1ArtifactMigrationMissing extends Schema.TaggedError<D1ArtifactMigrationMissing>()(
+  "D1ArtifactMigrationMissing",
+  {
+    capsuleId: Schema.String,
+    migrationId: Schema.Number,
+    path: Schema.String,
+  },
+) {}
+
+/** D1 artifact migration files no longer follow manifest order. */
+export class D1ArtifactMigrationReordered extends Schema.TaggedError<D1ArtifactMigrationReordered>()(
+  "D1ArtifactMigrationReordered",
+  {
+    capsuleId: Schema.String,
+    migrationId: Schema.Number,
+    expectedIndex: Schema.Number,
+    actualIndex: Schema.Number,
+  },
+) {}
+
+/** A D1 artifact file or its metadata differs from the manifest projection. */
+export class D1ArtifactMigrationEdited extends Schema.TaggedError<D1ArtifactMigrationEdited>()(
+  "D1ArtifactMigrationEdited",
+  {
+    capsuleId: Schema.String,
+    migrationId: Schema.Number,
+    expectedChecksum: Schema.String,
+    actualChecksum: Schema.String,
+  },
+) {}
+
 /** A migration requires an explicit destructive-operation authorization. */
 export class DestructiveMigrationUnauthorized extends Schema.TaggedError<DestructiveMigrationUnauthorized>()(
   "DestructiveMigrationUnauthorized",
@@ -158,6 +206,11 @@ export type CapsuleError =
   | MissingProviderMigration
   | UnsupportedCapability
   | ProviderMismatch
+  | D1ArtifactUnsupportedBody
+  | D1ArtifactStale
+  | D1ArtifactMigrationMissing
+  | D1ArtifactMigrationReordered
+  | D1ArtifactMigrationEdited
   | DestructiveMigrationUnauthorized
   | DatabaseAhead
   | PartialMigration

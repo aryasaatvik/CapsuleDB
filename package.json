@@ -19,6 +19,9 @@
     "type": "git",
     "url": "git+https://github.com/aryasaatvik/CapsuleDB.git"
   },
+  "bin": {
+    "capsuledb": "./dist/cli.mjs"
+  },
   "files": [
     "dist",
     "LICENSE",
@@ -38,6 +41,10 @@
     "./D1": {
       "types": "./dist/D1.d.mts",
       "import": "./dist/D1.mjs"
+    },
+    "./D1Artifact": {
+      "types": "./dist/D1Artifact.d.mts",
+      "import": "./dist/D1Artifact.mjs"
     },
     "./Error": {
       "types": "./dist/Error.d.mts",
@@ -79,15 +86,19 @@
   },
   "scripts": {
     "build": "tsdown",
+    "capsuledb": "bun ./src/cli.ts",
     "clean": "rm -rf dist coverage",
+    "docs:check": "bun ./tools/check-docs.ts",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
-    "lint": "oxlint --deny-warnings src tests tsdown.config.ts vitest.config.ts vitest.setup.ts oxlint.config.ts",
+    "lint": "oxlint --deny-warnings src tests tools tsdown.config.ts vitest.config.ts vitest.setup.ts oxlint.config.ts",
+    "release:check": "bun run build && bun ./tools/release-check.ts",
     "test": "bun ./node_modules/vitest/vitest.mjs run --exclude tests/artifact/**/*.test.ts",
     "test:providers": "bun ./node_modules/vitest/vitest.mjs run tests/providers tests/conformance tests/lifecycle",
     "test:artifact": "bun run build && vitest run tests/artifact",
     "test:types": "tstyche --config tstyche.config.json --target '>=5.9'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:examples": "bun run build && tsc --project tsconfig.examples.json"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260822.1",
