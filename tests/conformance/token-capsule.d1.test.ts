@@ -1,10 +1,13 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { D1 } from "../../src/D1.ts";
+import { profile as d1Profile } from "../../src/D1.ts";
 import { makeRegistry, prepare, status } from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
-import { OneTimeTokens } from "../../examples/reference-token/OneTimeTokens.ts";
+import {
+  OneTimeTokens,
+  layer as tokenLayer,
+} from "../../examples/reference-token/OneTimeTokens.ts";
 import { withD1 } from "../providers/d1.ts";
 
 describe("reference token capsule over a host-supplied D1 binding", () => {
@@ -17,7 +20,7 @@ describe("reference token capsule over a host-supplied D1 binding", () => {
             Effect.gen(function* () {
               const capsule = yield* referenceTokenCapsule;
               const registry = yield* makeRegistry({
-                provider: D1.profile,
+                provider: d1Profile,
                 capsules: [capsule],
               });
               const receipt = yield* prepare(registry);
@@ -30,7 +33,7 @@ describe("reference token capsule over a host-supplied D1 binding", () => {
               assert.strictEqual(consumed.token, issued.token);
               const replay = yield* service.consume(issued.token).pipe(Effect.flip);
               assert.strictEqual(replay._tag, "TokenAlreadyConsumed");
-            }).pipe(Effect.provide(OneTimeTokens.layer)),
+            }).pipe(Effect.provide(tokenLayer)),
           );
 
           const rows = yield* client<{ readonly value: number }>`SELECT 2 AS value`;
@@ -48,7 +51,7 @@ describe("reference token capsule over a host-supplied D1 binding", () => {
           Effect.gen(function* () {
             const capsule = yield* referenceTokenCapsule;
             const registry = yield* makeRegistry({
-              provider: D1.profile,
+              provider: d1Profile,
               capsules: [capsule],
             });
             yield* prepare(registry);
@@ -59,14 +62,14 @@ describe("reference token capsule over a host-supplied D1 binding", () => {
               BEFORE INSERT ON "capsule_reference_2e_token_audit"
               BEGIN SELECT RAISE(ABORT, 'audit failure'); END`);
             const failure = yield* service.consume(issued.token).pipe(Effect.flip);
-            assert.strictEqual(failure._tag, "SqlError");
+            assert.strictEqual(failure._tag, "TokenPersistenceError");
             assert.strictEqual((yield* service.get(issued.token))._tag, "Pending");
             assert.deepStrictEqual(
               yield* client<{ readonly count: number }>`SELECT COUNT(*) AS count
                 FROM "capsule_reference_2e_token_audit"`,
               [{ count: 0 }],
             );
-          }).pipe(Effect.provide(OneTimeTokens.layer)),
+          }).pipe(Effect.provide(tokenLayer)),
         ),
       ),
     60_000,

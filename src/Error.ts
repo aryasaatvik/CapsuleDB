@@ -47,7 +47,7 @@ export class MigrationNameDrift extends Schema.TaggedError<MigrationNameDrift>()
   { migrationId: Schema.Number, expected: Schema.String, actual: Schema.String },
 ) {}
 
-/** An already-known logical migration changed its source checksum. */
+/** An already-known logical migration changed its canonical checksum. */
 export class MigrationChecksumDrift extends Schema.TaggedError<MigrationChecksumDrift>()(
   "MigrationChecksumDrift",
   { migrationId: Schema.Number, expected: Schema.String, actual: Schema.String },
@@ -175,6 +175,12 @@ export class LedgerConflict extends Schema.TaggedError<LedgerConflict>()("Ledger
   actual: Schema.String,
 }) {}
 
+/** A registry-owned persistence row could not be decoded safely. */
+export class RegistryCorrupt extends Schema.TaggedError<RegistryCorrupt>()("RegistryCorrupt", {
+  operation: Schema.String,
+  reason: Schema.String,
+}) {}
+
 /** A supplied token does not exist or is not valid for this capsule. */
 export class TokenNotFound extends Schema.TaggedError<TokenNotFound>()("TokenNotFound", {
   token: Schema.String,
@@ -218,6 +224,7 @@ export type CapsuleError =
   | PreparationFailed
   | NotReady
   | LedgerConflict
+  | RegistryCorrupt
   | TokenNotFound
   | TokenAlreadyConsumed
   | InvalidToken;

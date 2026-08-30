@@ -15,6 +15,7 @@ export interface TransactionalMigration {
   readonly migrationId: number;
   readonly name: string;
   readonly checksum: string;
+  readonly provider: string;
   readonly body: MigrationBody;
 }
 
@@ -32,9 +33,9 @@ export const runTransactionalMigration = (
   options.sql.withTransaction(
     Effect.gen(function* () {
       yield* options.sql`INSERT INTO ${options.sql(LEDGER_TABLE)}
-        (capsule_id, migration_id, name, checksum, applied_at)
+        (capsule_id, migration_id, name, checksum, applied_at, provider)
         VALUES (${options.capsuleId}, ${options.migrationId}, ${options.name},
-          ${options.checksum}, ${new Date().toISOString()})`;
+          ${options.checksum}, ${new Date().toISOString()}, ${options.provider})`;
 
       if (options.body._tag === "Sql") {
         for (const statement of options.body.statements) {

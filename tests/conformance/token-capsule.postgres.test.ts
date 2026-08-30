@@ -3,10 +3,13 @@ import { Effect, Layer } from "effect";
 
 import { makeCapsule } from "../../src/Capsule.ts";
 import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
-import { Pg } from "../../src/Pg.ts";
+import { profile as postgresProfile } from "../../src/Pg.ts";
 import { makeRegistry, prepare, status } from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
-import { OneTimeTokens } from "../../examples/reference-token/OneTimeTokens.ts";
+import {
+  OneTimeTokens,
+  layer as tokenLayer,
+} from "../../examples/reference-token/OneTimeTokens.ts";
 import { withPostgres } from "../providers/postgres.ts";
 
 describe("reference token capsule over a host-supplied PostgreSQL client", () => {
@@ -19,7 +22,7 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
             Effect.gen(function* () {
               const capsule = yield* referenceTokenCapsule;
               const registry = yield* makeRegistry({
-                provider: Pg.profile,
+                provider: postgresProfile,
                 capsules: [capsule],
               });
               const receipt = yield* prepare(registry);
@@ -32,7 +35,7 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
               assert.strictEqual(consumed.token, issued.token);
               const replay = yield* service.consume(issued.token).pipe(Effect.flip);
               assert.strictEqual(replay._tag, "TokenAlreadyConsumed");
-            }).pipe(Effect.provide(OneTimeTokens.layer)),
+            }).pipe(Effect.provide(tokenLayer)),
           );
 
           const rows = yield* client<{ readonly value: number }>`SELECT 2 AS value`;
@@ -52,7 +55,7 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
             name: "failing-postgres-migration",
             risk: "additive",
             providers: {
-              Postgres: sqlMigrationBody("failing-postgres-migration", [
+              Postgres: sqlMigrationBody([
                 'CREATE TABLE "postgres_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
                 "THIS IS NOT VALID SQL",
               ]),
@@ -64,7 +67,7 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
             layer: Layer.empty,
           });
           const registry = yield* makeRegistry({
-            provider: Pg.profile,
+            provider: postgresProfile,
             capsules: [capsule],
           });
           const failure = yield* prepare(registry).pipe(Effect.flip);
@@ -93,10 +96,9 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
             name: "concurrent-postgres-migration",
             risk: "additive",
             providers: {
-              Postgres: sqlMigrationBody(
+              Postgres: sqlMigrationBody([
                 'CREATE TABLE "postgres_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)',
-                ['CREATE TABLE "postgres_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)'],
-              ),
+              ]),
             },
           });
           const capsule = yield* makeCapsule({
@@ -105,7 +107,7 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
             layer: Layer.empty,
           });
           const registry = yield* makeRegistry({
-            provider: Pg.profile,
+            provider: postgresProfile,
             capsules: [capsule],
           });
           const receipts = yield* Effect.all([prepare(registry), prepare(registry)], {

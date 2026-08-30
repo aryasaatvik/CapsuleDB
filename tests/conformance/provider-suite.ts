@@ -2,10 +2,13 @@ import { assert, vi } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { providerDialectName } from "../../src/Provider.ts";
+import { providerName } from "../../src/Provider.ts";
 import { makeRegistry, plan, prepare, status } from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
-import { OneTimeTokens } from "../../examples/reference-token/OneTimeTokens.ts";
+import {
+  OneTimeTokens,
+  layer as tokenLayer,
+} from "../../examples/reference-token/OneTimeTokens.ts";
 import type { ProviderCase } from "../providers/cases.ts";
 
 /**
@@ -28,7 +31,7 @@ export const runProviderSuite = (
     assert.strictEqual(pending._tag, "Pending");
 
     const firstReceipt = yield* prepare(registry);
-    assert.strictEqual(firstReceipt.provider, providerDialectName(provider.profile.dialect));
+    assert.strictEqual(firstReceipt.provider, providerName(provider.profile.provider));
     assert.strictEqual(firstReceipt.fingerprint, registryPlan.manifest.fingerprint);
     assert.strictEqual((yield* status(registry))._tag, "Ready");
 
@@ -74,10 +77,7 @@ export const runProviderSuite = (
         );
         assert.strictEqual(concurrent.filter((result) => result._tag === "Success").length, 1);
         assert.strictEqual(concurrent.filter((result) => result._tag === "Failure").length, 1);
-      }).pipe(
-        Effect.provide(OneTimeTokens.layer),
-        Effect.provideService(SqlClient.SqlClient, client),
-      ),
+      }).pipe(Effect.provide(tokenLayer), Effect.provideService(SqlClient.SqlClient, client)),
     );
 
     yield* Effect.scoped(
@@ -101,7 +101,7 @@ export const runProviderSuite = (
           assert.notStrictEqual(revoked.revokedAt, "2200-01-01T00:00:00.000Z");
         }
       }).pipe(
-        Effect.provide(OneTimeTokens.layer),
+        Effect.provide(tokenLayer),
         Effect.provideService(SqlClient.SqlClient, client),
         Effect.ensuring(Effect.sync(() => vi.useRealTimers())),
       ),

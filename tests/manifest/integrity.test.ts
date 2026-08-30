@@ -86,16 +86,14 @@ describe("deterministic manifest integrity", () => {
         name: "create-tokens",
         risk: "additive",
         providers: {
-          Sqlite: sqlMigrationBody("CREATE TABLE tokens (id TEXT)", [
-            "CREATE TABLE tokens (id TEXT)",
-          ]),
+          Sqlite: sqlMigrationBody(["CREATE TABLE tokens (id TEXT)"]),
         },
       });
       const sqliteOnlyCapsule = yield* makeFixtureCapsule([sqliteOnly]);
       const providerError = yield* validateManifest({
         capsules: [sqliteOnlyCapsule],
         expected,
-        provider: { ...BunSqliteProfile, dialect: { _tag: "D1" } },
+        provider: { ...BunSqliteProfile, dialect: { _tag: "Postgres" } },
       }).pipe(Effect.flip);
       assert.strictEqual(
         manifestErrorTag(providerError),

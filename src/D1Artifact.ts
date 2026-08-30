@@ -135,7 +135,7 @@ const d1Body = (
       migrationId: migration.id,
       name: migration.name,
       checksum: migration.checksum,
-      source: provider.source,
+      source: provider.statements.join("\n"),
       statements: [...provider.statements],
     };
   });

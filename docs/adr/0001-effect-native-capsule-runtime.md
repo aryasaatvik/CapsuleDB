@@ -59,12 +59,14 @@ descriptors, and an Effect `Layer` for the opaque domain service. A registry is
 explicitly composed from capsules and one validated provider profile before
 any database mutation.
 
-Provider dialect and execution capabilities remain separate tagged models. The
+Provider identity, SQL dialect, and execution capabilities remain separate tagged models. The
 D1 profile is atomic-batch-only: it cannot advertise interactive transactions,
 savepoints, streaming, or arbitrary Effect migration bodies. Transactional
 providers may opt into Effect migration bodies restricted to the host
-`SqlClient` environment; their source text is still provided explicitly for
-manifest hashing and functions are never serialized.
+`SqlClient` environment; their immutable author-assigned revision is recorded
+for manifest hashing and functions are never serialized. SQL checksums derive
+from canonical statement arrays. Exact provider migration overrides take
+precedence over dialect defaults.
 
 CapsuleDB owns migration coordination and ledger state. A capsule owns its
 private queries and service implementation. The host supplies and owns the

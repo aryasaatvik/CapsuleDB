@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
@@ -16,9 +16,10 @@ import {
   PartialMigration,
   PreparationFailed,
   ProviderMismatch,
+  RegistryCorrupt,
   type CapsuleError,
 } from "./Error.ts";
-import type { Migration, MigrationBody } from "./Migration.ts";
+import { resolveMigrationImplementation, type Migration, type MigrationBody } from "./Migration.ts";
 import {
   buildManifest,
   type Manifest,
@@ -33,7 +34,7 @@ import {
 } from "./Readiness.ts";
 import {
   makeProviderProfile,
-  providerDialectName,
+  providerName,
   type ProviderProfile,
   type ProviderProfileError,
 } from "./Provider.ts";
@@ -58,6 +59,12 @@ export interface Registry {
   readonly provider: ProviderProfile;
   readonly capsules: ReadonlyArray<AnyCapsule>;
 }
+
+/** Resolve an implementation by exact provider, then SQL dialect fallback. */
+const resolveMigrationBody = (
+  migration: Migration,
+  provider: ProviderProfile,
+): MigrationBody | undefined => resolveMigrationImplementation(migration, provider);
 
 export type RegistryError =
   | ProviderProfileError
@@ -114,7 +121,7 @@ export const makeRegistry = (options: RegistryOptions): Effect.Effect<Registry, 
         }
         seenMigrationIds.push(migration.id);
 
-        const implementation = migration.providers[provider.dialect._tag];
+        const implementation = resolveMigrationBody(migration, provider);
         if (implementation === undefined) {
           return yield* Effect.fail(
             new MissingProviderMigration({
@@ -150,6 +157,7 @@ interface LedgerRow {
   readonly name: string;
   readonly checksum: string;
   readonly applied_at: string;
+  readonly provider: string;
 }
 
 interface MetadataRow {
@@ -158,10 +166,52 @@ interface MetadataRow {
   readonly provider: string;
 }
 
+const AppliedAt = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)),
+);
+const LedgerRowSchema = Schema.Struct({
+  capsule_id: Schema.String,
+  migration_id: Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))),
+  name: Schema.String,
+  checksum: Schema.String.pipe(Schema.check(Schema.isLengthBetween(64, 64))),
+  applied_at: AppliedAt,
+  provider: Schema.String,
+});
+const MetadataRowSchema = Schema.Struct({
+  id: Schema.Literal(1),
+  fingerprint: Schema.String.pipe(Schema.check(Schema.isLengthBetween(64, 64))),
+  provider: Schema.String,
+});
+const CatalogCountSchema = Schema.Struct({
+  count: Schema.Union([Schema.Number, Schema.String]),
+});
+
 /** The read-only plan produced before the host invokes runtime preparation. */
 export interface RegistryPlan {
   readonly registry: Registry;
   readonly manifest: Manifest;
+}
+
+/** Database comparison result produced by the read-only planning operation. */
+export type RegistryPlanState =
+  | { readonly _tag: "Pending"; readonly fingerprint: string }
+  | { readonly _tag: "Applied"; readonly fingerprint: string; readonly provider: string }
+  | {
+      readonly _tag: "Ahead";
+      readonly capsuleId: string;
+      readonly migrationId: number;
+      readonly name: string;
+    }
+  | {
+      readonly _tag: "Divergent";
+      readonly expectedFingerprint: string;
+      readonly actualFingerprint: string;
+      readonly reason: string;
+    }
+  | { readonly _tag: "Corrupt"; readonly reason: string };
+
+export interface DatabasePlan extends RegistryPlan {
+  readonly state: RegistryPlanState;
 }
 
 /** Explicit authorization for destructive migration bodies for one run. */
@@ -183,12 +233,15 @@ export type RegistryRuntimeError =
   | ProviderMismatch
   | InvalidDefinition;
 
-/** Build the deterministic manifest plan for a validated registry. */
-export const plan = (registry: Registry): Effect.Effect<RegistryPlan, ManifestError> =>
+/** Build the deterministic, database-independent manifest description. */
+export const manifestPlan = (registry: Registry): Effect.Effect<RegistryPlan, ManifestError> =>
   buildManifest({ capsules: registry.capsules }).pipe(
     Effect.map((manifest) => Object.freeze({ registry, manifest })),
     Effect.withSpan("capsuledb.registry.plan"),
   );
+
+/** Build the manifest description without touching the host database. */
+export const describe = manifestPlan;
 
 const ensureRuntimeTables = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError> =>
   Effect.gen(function* () {
@@ -198,6 +251,7 @@ const ensureRuntimeTables = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlE
       name TEXT NOT NULL,
       checksum TEXT NOT NULL,
       applied_at TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'sqlite',
       PRIMARY KEY (capsule_id, migration_id)
     )`);
     yield* sql.unsafe(`CREATE TABLE IF NOT EXISTS "${METADATA_TABLE}" (
@@ -207,30 +261,74 @@ const ensureRuntimeTables = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlE
     )`);
   });
 
-const readMetadata = (sql: SqlClient.SqlClient): Effect.Effect<MetadataRow | undefined, SqlError> =>
+/** Inspect catalog metadata without creating or mutating CapsuleDB tables. */
+const runtimeTablesExist = (
+  sql: SqlClient.SqlClient,
+  provider: ProviderProfile,
+): Effect.Effect<"none" | "partial" | "complete", SqlError> =>
   Effect.gen(function* () {
-    const rows = yield* sql<MetadataRow>`SELECT id, fingerprint, provider
+    const rows =
+      provider.dialect._tag === "Postgres"
+        ? yield* sql`SELECT COUNT(*)::int AS count FROM information_schema.tables
+            WHERE table_schema = current_schema()
+              AND table_name IN (${LEDGER_TABLE}, ${METADATA_TABLE})`
+        : yield* sql`SELECT COUNT(*) AS count FROM sqlite_master
+            WHERE type = 'table' AND name IN (${LEDGER_TABLE}, ${METADATA_TABLE})`;
+    const count = rows[0];
+    if (count === undefined) return "none";
+    try {
+      const decoded = Schema.decodeUnknownSync(CatalogCountSchema)(count);
+      const countValue = Number(decoded.count);
+      return countValue === 0 ? "none" : countValue === 2 ? "complete" : "partial";
+    } catch {
+      return "none";
+    }
+  });
+
+const readMetadata = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<MetadataRow | undefined, SqlError | RegistryCorrupt> =>
+  Effect.gen(function* () {
+    const rows = yield* sql`SELECT id, fingerprint, provider
       FROM ${sql(METADATA_TABLE)} WHERE id = 1`;
-    return rows[0];
+    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(MetadataRowSchema))(rows).pipe(
+      Effect.mapError(
+        (cause) => new RegistryCorrupt({ operation: "read metadata", reason: String(cause) }),
+      ),
+    );
+    return decoded[0];
   });
 
 const readLedger = (
   sql: SqlClient.SqlClient,
   capsuleId: string,
   migrationId: number,
-): Effect.Effect<LedgerRow | undefined, SqlError> =>
+): Effect.Effect<LedgerRow | undefined, SqlError | RegistryCorrupt> =>
   Effect.gen(function* () {
-    const rows = yield* sql<LedgerRow>`SELECT capsule_id, migration_id, name, checksum, applied_at
+    const rows = yield* sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider
       FROM ${sql(LEDGER_TABLE)}
       WHERE capsule_id = ${capsuleId} AND migration_id = ${migrationId}`;
-    return rows[0];
+    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(LedgerRowSchema))(rows).pipe(
+      Effect.mapError(
+        (cause) => new RegistryCorrupt({ operation: "read ledger", reason: String(cause) }),
+      ),
+    );
+    return decoded[0];
   });
 
 const readLedgerRows = (
   sql: SqlClient.SqlClient,
-): Effect.Effect<ReadonlyArray<LedgerRow>, SqlError> =>
-  sql<LedgerRow>`SELECT capsule_id, migration_id, name, checksum, applied_at
-    FROM ${sql(LEDGER_TABLE)} ORDER BY capsule_id, migration_id`;
+): Effect.Effect<ReadonlyArray<LedgerRow>, SqlError | RegistryCorrupt> =>
+  sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider
+    FROM ${sql(LEDGER_TABLE)} ORDER BY capsule_id, migration_id`.pipe(
+    Effect.flatMap((rows) =>
+      Schema.decodeUnknownEffect(Schema.Array(LedgerRowSchema))(rows).pipe(
+        Effect.mapError(
+          (cause) => new RegistryCorrupt({ operation: "read ledger", reason: String(cause) }),
+        ),
+      ),
+    ),
+  );
 
 const expectedMigrationCount = (registry: Registry): number =>
   registry.capsules.reduce((count, capsule) => count + capsule.migrations.length, 0);
@@ -286,7 +384,7 @@ const validateExistingLedger = (
   registry: Registry,
   registryPlan: RegistryPlan,
   ledgerRows: ReadonlyArray<LedgerRow>,
-): Effect.Effect<void, DatabaseAhead | LedgerConflict> =>
+): Effect.Effect<void, DatabaseAhead | LedgerConflict | ProviderMismatch> =>
   Effect.gen(function* () {
     for (const row of ledgerRows) {
       const capsule = registry.capsules.find((candidate) => candidate.id === row.capsule_id);
@@ -339,7 +437,7 @@ const migrationBody = (
   migration: Migration,
 ): Effect.Effect<MigrationBody, MissingProviderMigration> =>
   Effect.gen(function* () {
-    const body = migration.providers[registry.provider.dialect._tag];
+    const body = resolveMigrationBody(migration, registry.provider);
     if (body === undefined) {
       return yield* Effect.fail(
         new MissingProviderMigration({
@@ -396,6 +494,7 @@ const applyTransactional = (
       migrationId: migration.id,
       name: migration.name,
       checksum: manifestMigration.checksum,
+      provider: providerName(registry.provider.provider),
       body,
     }).pipe(
       Effect.tap(() =>
@@ -476,6 +575,7 @@ const applyD1 = (
       migrationId: migration.id,
       name: migration.name,
       checksum: manifestMigration.checksum,
+      provider: providerName(registry.provider.provider),
       body,
     }).pipe(
       Effect.match({
@@ -574,6 +674,7 @@ const preflightD1Pending = (
           migrationId: migration.id,
           name: migration.name,
           checksum: manifestMigration.checksum,
+          provider: providerName(registry.provider.provider),
           body,
         });
       }
@@ -653,43 +754,167 @@ const firstIncompleteMigration = (
   return undefined;
 };
 
-/** Read the current host-owned metadata without constructing a service layer. */
+/** Read the current host-owned metadata without constructing or mutating tables. */
+export const plan = (
+  registry: Registry,
+): Effect.Effect<DatabasePlan, ManifestError | SqlError, SqlClient.SqlClient> =>
+  Effect.gen(function* () {
+    const registryPlan = yield* manifestPlan(registry);
+    const sql = yield* Effect.service(SqlClient.SqlClient);
+    const expectedProvider = providerName(registry.provider.provider);
+    const tablesExist = yield* runtimeTablesExist(sql, registry.provider);
+    if (tablesExist === "none") {
+      return Object.freeze({
+        ...registryPlan,
+        state: { _tag: "Pending", fingerprint: registryPlan.manifest.fingerprint } as const,
+      });
+    }
+    if (tablesExist === "partial") {
+      return Object.freeze({
+        ...registryPlan,
+        state: { _tag: "Corrupt", reason: "registry tables are incomplete" } as const,
+      });
+    }
+
+    const metadataExit = yield* readMetadata(sql).pipe(
+      Effect.match({
+        onFailure: (left) => ({ _tag: "Left" as const, left }),
+        onSuccess: (right) => ({ _tag: "Right" as const, right }),
+      }),
+    );
+    if (metadataExit._tag === "Left") {
+      return Object.freeze({
+        ...registryPlan,
+        state: { _tag: "Corrupt", reason: String(metadataExit.left) } as const,
+      });
+    }
+    const ledgerExit = yield* readLedgerRows(sql).pipe(
+      Effect.match({
+        onFailure: (left) => ({ _tag: "Left" as const, left }),
+        onSuccess: (right) => ({ _tag: "Right" as const, right }),
+      }),
+    );
+    if (ledgerExit._tag === "Left") {
+      return Object.freeze({
+        ...registryPlan,
+        state: { _tag: "Corrupt", reason: String(ledgerExit.left) } as const,
+      });
+    }
+    const metadata = metadataExit.right;
+    const ledgerRows = ledgerExit.right;
+    if (metadata === undefined && ledgerRows.length === 0) {
+      return Object.freeze({
+        ...registryPlan,
+        state: { _tag: "Pending", fingerprint: registryPlan.manifest.fingerprint } as const,
+      });
+    }
+    if (metadata === undefined) {
+      return Object.freeze({
+        ...registryPlan,
+        state: {
+          _tag: "Divergent",
+          expectedFingerprint: registryPlan.manifest.fingerprint,
+          actualFingerprint: "",
+          reason: "registry ledger exists without readiness metadata",
+        } as const,
+      });
+    }
+    if (metadata.provider !== expectedProvider) {
+      return Object.freeze({
+        ...registryPlan,
+        state: {
+          _tag: "Divergent",
+          expectedFingerprint: registryPlan.manifest.fingerprint,
+          actualFingerprint: metadata.fingerprint,
+          reason: `provider mismatch: expected ${expectedProvider}, found ${metadata.provider}`,
+        } as const,
+      });
+    }
+    const ledgerValidation = yield* validateExistingLedger(registry, registryPlan, ledgerRows).pipe(
+      Effect.match({
+        onFailure: (left) => ({ _tag: "Left" as const, left }),
+        onSuccess: (right) => ({ _tag: "Right" as const, right }),
+      }),
+    );
+    if (ledgerValidation._tag === "Left") {
+      const error = ledgerValidation.left;
+      if (error._tag === "DatabaseAhead") {
+        return Object.freeze({
+          ...registryPlan,
+          state: {
+            _tag: "Ahead",
+            capsuleId: error.capsuleId,
+            migrationId: error.migrationId,
+            name: error.name,
+          } as const,
+        });
+      }
+      return Object.freeze({
+        ...registryPlan,
+        state: {
+          _tag: "Divergent",
+          expectedFingerprint: registryPlan.manifest.fingerprint,
+          actualFingerprint: metadata.fingerprint,
+          reason:
+            error._tag === "ProviderMismatch"
+              ? "provider-stamped ledger mismatch"
+              : "ledger checksum or name mismatch",
+        } as const,
+      });
+    }
+    if (
+      metadata.fingerprint === registryPlan.manifest.fingerprint &&
+      hasCompleteLedger(registry, registryPlan, ledgerRows)
+    ) {
+      return Object.freeze({
+        ...registryPlan,
+        state: {
+          _tag: "Applied",
+          fingerprint: metadata.fingerprint,
+          provider: metadata.provider,
+        } as const,
+      });
+    }
+    return Object.freeze({
+      ...registryPlan,
+      state: {
+        _tag: "Divergent",
+        expectedFingerprint: registryPlan.manifest.fingerprint,
+        actualFingerprint: metadata.fingerprint,
+        reason: "registry ledger is incomplete or fingerprint is stale",
+      } as const,
+    });
+  });
+
+/** Derive the lightweight readiness state from the same database plan. */
 export const status = (
   registry: Registry,
 ): Effect.Effect<Readiness, ManifestError | SqlError, SqlClient.SqlClient> =>
-  Effect.gen(function* () {
-    const registryPlan = yield* plan(registry);
-    const sql = yield* Effect.service(SqlClient.SqlClient);
-    yield* ensureRuntimeTables(sql);
-    const metadata = yield* readMetadata(sql);
-    if (metadata === undefined) {
-      const pending: Readiness = {
-        _tag: "Pending",
-        fingerprint: registryPlan.manifest.fingerprint,
-      };
-      return pending;
-    }
-    const ledgerRows = yield* readLedgerRows(sql);
-    const expectedProvider = providerDialectName(registry.provider.dialect);
-    if (
-      metadata.fingerprint === registryPlan.manifest.fingerprint &&
-      metadata.provider === expectedProvider &&
-      hasCompleteLedger(registry, registryPlan, ledgerRows)
-    ) {
-      const ready: Readiness = {
-        _tag: "Ready",
-        fingerprint: metadata.fingerprint,
-        provider: metadata.provider,
-      };
-      return ready;
-    }
-    const stale: Readiness = {
-      _tag: "Stale",
-      expectedFingerprint: registryPlan.manifest.fingerprint,
-      actualFingerprint: metadata.fingerprint,
-    };
-    return stale;
-  });
+  plan(registry).pipe(
+    Effect.map((databasePlan) => {
+      switch (databasePlan.state._tag) {
+        case "Applied":
+          return {
+            _tag: "Ready",
+            fingerprint: databasePlan.state.fingerprint,
+            provider: databasePlan.state.provider,
+          };
+        case "Pending":
+          return { _tag: "Pending", fingerprint: databasePlan.manifest.fingerprint };
+        case "Ahead":
+        case "Divergent":
+        case "Corrupt":
+          return {
+            _tag: "Stale",
+            expectedFingerprint: databasePlan.manifest.fingerprint,
+            actualFingerprint:
+              databasePlan.state._tag === "Divergent"
+                ? databasePlan.state.actualFingerprint
+                : "corrupt",
+          };
+      }
+    }),
+  );
 
 const preparePostgres = (
   sql: SqlClient.SqlClient,
@@ -705,7 +930,7 @@ const preparePostgres = (
       const ledgerRows = yield* readLedgerRows(sql);
       yield* validateExistingLedger(registry, registryPlan, ledgerRows);
       yield* applyPending(sql, registry, registryPlan, options);
-      yield* writeMetadata(sql, registryPlan, providerDialectName(registry.provider.dialect));
+      yield* writeMetadata(sql, registryPlan, providerName(registry.provider.provider));
     }),
   );
 
@@ -732,7 +957,7 @@ export const prepare = (
   options: PrepareOptions = {},
 ): Effect.Effect<ReadinessReceipt, RegistryRuntimeError, SqlClient.SqlClient> =>
   Effect.gen(function* () {
-    const registryPlan = yield* plan(registry);
+    const registryPlan = yield* manifestPlan(registry);
     const sql = yield* Effect.service(SqlClient.SqlClient);
     if (registry.provider.dialect._tag === "Postgres") {
       yield* initializePostgres(sql);
@@ -744,7 +969,7 @@ export const prepare = (
     yield* validateExistingLedger(registry, registryPlan, ledgerRows);
 
     const metadata = yield* readMetadata(sql);
-    const expectedProvider = providerDialectName(registry.provider.dialect);
+    const expectedProvider = providerName(registry.provider.provider);
     if (metadata !== undefined && metadata.provider !== expectedProvider) {
       yield* Effect.logWarning("CapsuleDB provider diverged").pipe(
         Effect.annotateLogs("expected_provider", expectedProvider),
@@ -756,11 +981,27 @@ export const prepare = (
       );
     }
 
-    // A ledger without its metadata cannot identify which provider's physical
-    // bodies were applied. Refuse to treat the rows as complete: otherwise a
-    // provider switch could skip its own bodies and merely recreate metadata.
+    // D1 can recover metadata after an interrupted metadata write, but only
+    // when every provider-stamped claim exactly matches the current history.
+    // Transactional providers fail closed because their outer transaction
+    // should have committed metadata together with the claims.
     const firstLedgerRow = ledgerRows[0];
     if (metadata === undefined && firstLedgerRow !== undefined) {
+      const providerStamped = activeLedgerRows(registry, ledgerRows).every(
+        (row) => row.provider === expectedProvider,
+      );
+      if (
+        registry.provider.capabilities._tag === "AtomicBatch" &&
+        providerStamped &&
+        hasCompleteLedger(registry, registryPlan, ledgerRows)
+      ) {
+        yield* writeMetadata(sql, registryPlan, expectedProvider);
+        return makeReadinessReceipt(
+          registryPlan.manifest.fingerprint,
+          expectedProvider,
+          registryPlan.registry.capsules.length,
+        );
+      }
       return yield* Effect.fail(
         new PartialMigration({
           capsuleId: firstLedgerRow.capsule_id,
@@ -816,6 +1057,13 @@ export const prepare = (
 
     if (registry.provider.dialect._tag === "Postgres") {
       yield* preparePostgres(sql, registry, registryPlan, options);
+    } else if (registry.provider.capabilities._tag === "Transactional") {
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* applyPending(sql, registry, registryPlan, options);
+          yield* writeMetadata(sql, registryPlan, expectedProvider);
+        }),
+      );
     } else {
       yield* applyPending(sql, registry, registryPlan, options);
       yield* writeMetadata(sql, registryPlan, expectedProvider);
@@ -837,7 +1085,7 @@ export const assertRegistryReady = (
   registry: Registry,
 ): Effect.Effect<ReadinessReceipt, ManifestError | SqlError | NotReady, SqlClient.SqlClient> =>
   Effect.gen(function* () {
-    const registryPlan = yield* plan(registry);
+    const registryPlan = yield* manifestPlan(registry);
     const current = yield* status(registry);
     if (current._tag !== "Ready") {
       const actual =
@@ -850,7 +1098,7 @@ export const assertRegistryReady = (
     }
     return makeReadinessReceipt(
       registryPlan.manifest.fingerprint,
-      providerDialectName(registry.provider.dialect),
+      providerName(registry.provider.provider),
       registry.capsules.length,
     );
   });

@@ -4,10 +4,13 @@ import { Effect } from "effect";
 import { sql } from "drizzle-orm";
 import * as PgDrizzle from "drizzle-orm/effect-postgres";
 
-import { Pg } from "../../src/Pg.ts";
+import { profile as postgresProfile } from "../../src/Pg.ts";
 import { makeRegistry, prepare } from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
-import { OneTimeTokens } from "../../examples/reference-token/OneTimeTokens.ts";
+import {
+  OneTimeTokens,
+  layer as tokenLayer,
+} from "../../examples/reference-token/OneTimeTokens.ts";
 import { withPostgres } from "./postgres.ts";
 
 describe("PostgreSQL Effect Drizzle composition", () => {
@@ -20,7 +23,7 @@ describe("PostgreSQL Effect Drizzle composition", () => {
             Effect.gen(function* () {
               const capsule = yield* referenceTokenCapsule;
               const registry = yield* makeRegistry({
-                provider: Pg.profile,
+                provider: postgresProfile,
                 capsules: [capsule],
               });
               yield* prepare(registry);
@@ -56,7 +59,7 @@ describe("PostgreSQL Effect Drizzle composition", () => {
                   FROM "capsule_reference_2e_tokens"`,
                 [{ count: 0 }],
               );
-            }).pipe(Effect.provide(OneTimeTokens.layer)),
+            }).pipe(Effect.provide(tokenLayer)),
           );
         }),
       ),

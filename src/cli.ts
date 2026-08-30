@@ -524,13 +524,11 @@ const checkArtifactFiles = (
   });
 
 if (isInvokedDirectly()) {
-  void Effect.runPromise(run(process.argv.slice(2)) as Effect.Effect<void, unknown, never>).catch(
-    (error: unknown) => {
-      if (typeof process !== "undefined") process.exitCode = 1;
-      if (error !== undefined && !failureWasReported) {
-        const details = errorRecord(error);
-        console.error(`${String(details._tag)}: ${String(details.message)}`);
-      }
-    },
-  );
+  void Effect.runPromise(run(process.argv.slice(2))).catch((error: unknown) => {
+    if (typeof process !== "undefined") process.exitCode = 1;
+    if (error !== undefined && !failureWasReported) {
+      const details = errorRecord(error);
+      console.error(`${String(details._tag)}: ${String(details.message)}`);
+    }
+  });
 }

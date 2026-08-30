@@ -21,9 +21,7 @@ const makeStaticManifest = (migrationCount = 1) =>
           name: `create-artifact-table-${id}`,
           risk: "additive",
           providers: {
-            D1: sqlMigrationBody(`CREATE TABLE "${tableName}" (id TEXT NOT NULL)`, [
-              `CREATE TABLE "${tableName}" (id TEXT NOT NULL)`,
-            ]),
+            D1: sqlMigrationBody([`CREATE TABLE "${tableName}" (id TEXT NOT NULL)`]),
           },
         }),
       );
@@ -105,7 +103,7 @@ describe("D1 artifact projection", () => {
         name: "two-statements",
         risk: "additive",
         providers: {
-          D1: sqlMigrationBody("two statements", ["SELECT 1", "SELECT 2"]),
+          D1: sqlMigrationBody(["SELECT 1", "SELECT 2"]),
         },
       });
       const oversizedCapsule = yield* makeCapsule({
@@ -121,13 +119,13 @@ describe("D1 artifact projection", () => {
         id: 1,
         name: "same-migration",
         risk: "additive",
-        providers: { D1: sqlMigrationBody("first", ["SELECT 1"]) },
+        providers: { D1: sqlMigrationBody(["SELECT 1"]) },
       });
       const secondMigration = yield* makeMigration({
         id: 1,
         name: "same-migration",
         risk: "additive",
-        providers: { D1: sqlMigrationBody("second", ["SELECT 2"]) },
+        providers: { D1: sqlMigrationBody(["SELECT 2"]) },
       });
       const firstCapsule = yield* makeCapsule({
         id: "a.b",

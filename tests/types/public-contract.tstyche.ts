@@ -2,9 +2,9 @@ import { Context, Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { expect, test } from "tstyche";
 
-import { D1 as D1Subpath } from "../../src/D1.ts";
-import { Libsql as LibsqlSubpath } from "../../src/Libsql.ts";
-import { Pg as PgSubpath } from "../../src/Pg.ts";
+import { profile as d1Profile } from "../../src/D1.ts";
+import { profile as libsqlProfile } from "../../src/Libsql.ts";
+import { profile as postgresProfile } from "../../src/Pg.ts";
 import * as CapsuleDB from "../../src/index.ts";
 
 class TokenService extends Context.Service<
@@ -58,12 +58,9 @@ test("public provider subpaths preserve their root exports", () => {
   expect(CapsuleDB).type.toHaveProperty("D1");
   expect(CapsuleDB).type.toHaveProperty("Pg");
   expect(CapsuleDB).type.toHaveProperty("Libsql");
-  expect(D1Subpath).type.toBeAssignableTo<typeof CapsuleDB.D1>();
-  expect(PgSubpath).type.toBeAssignableTo<typeof CapsuleDB.Pg>();
-  expect(LibsqlSubpath).type.toBeAssignableTo<typeof CapsuleDB.Libsql>();
-  expect(D1Subpath).type.toHaveProperty("profile");
-  expect(PgSubpath).type.toHaveProperty("profile");
-  expect(LibsqlSubpath).type.toHaveProperty("profile");
+  expect(d1Profile).type.toBeAssignableTo<typeof CapsuleDB.D1.profile>();
+  expect(postgresProfile).type.toBeAssignableTo<typeof CapsuleDB.Pg.profile>();
+  expect(libsqlProfile).type.toBeAssignableTo<typeof CapsuleDB.Libsql.profile>();
 });
 
 test("Effect migration bodies accept only the host SQL client", () => {

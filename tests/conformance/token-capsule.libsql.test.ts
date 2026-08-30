@@ -9,10 +9,13 @@ import { join } from "node:path";
 
 import { makeCapsule } from "../../src/Capsule.ts";
 import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
-import { Libsql } from "../../src/Libsql.ts";
+import { profile as libsqlProfile } from "../../src/Libsql.ts";
 import { makeRegistry, prepare, status } from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
-import { OneTimeTokens } from "../../examples/reference-token/OneTimeTokens.ts";
+import {
+  OneTimeTokens,
+  layer as tokenLayer,
+} from "../../examples/reference-token/OneTimeTokens.ts";
 
 const withHostClient = <A, E, R>(
   effect: (client: Client) => Effect.Effect<A, E, R>,
@@ -34,7 +37,7 @@ const withHostClient = <A, E, R>(
 const withLibsql = <A, E, R>(client: Client, effect: Effect.Effect<A, E, R>) =>
   Effect.scoped(
     effect.pipe(
-      Effect.provide(OneTimeTokens.layer),
+      Effect.provide(tokenLayer),
       Effect.provide(LibsqlClient.layer({ liveClient: client })),
     ),
   );
@@ -48,7 +51,7 @@ describe("reference token capsule over a host-supplied libSQL client", () => {
           Effect.gen(function* () {
             const capsule = yield* referenceTokenCapsule;
             const registry = yield* makeRegistry({
-              provider: Libsql.profile,
+              provider: libsqlProfile,
               capsules: [capsule],
             });
             const receipt = yield* prepare(registry);
@@ -84,7 +87,7 @@ describe("reference token capsule over a host-supplied libSQL client", () => {
               name: "failing-libsql-migration",
               risk: "additive",
               providers: {
-                Libsql: sqlMigrationBody("failing-libsql-migration", [
+                Libsql: sqlMigrationBody([
                   'CREATE TABLE "libsql_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
                   "THIS IS NOT VALID SQL",
                 ]),
@@ -96,7 +99,7 @@ describe("reference token capsule over a host-supplied libSQL client", () => {
               layer: Layer.empty,
             });
             const registry = yield* makeRegistry({
-              provider: Libsql.profile,
+              provider: libsqlProfile,
               capsules: [capsule],
             });
             const failure = yield* prepare(registry).pipe(Effect.flip);
@@ -161,10 +164,9 @@ describe("reference token capsule over a host-supplied libSQL client", () => {
             name: "concurrent-libsql-migration",
             risk: "additive",
             providers: {
-              Libsql: sqlMigrationBody(
+              Libsql: sqlMigrationBody([
                 'CREATE TABLE "libsql_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)',
-                ['CREATE TABLE "libsql_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)'],
-              ),
+              ]),
             },
           });
           const capsule = yield* makeCapsule({
@@ -173,7 +175,7 @@ describe("reference token capsule over a host-supplied libSQL client", () => {
             layer: Layer.empty,
           });
           const registry = yield* makeRegistry({
-            provider: Libsql.profile,
+            provider: libsqlProfile,
             capsules: [capsule],
           });
           const receipts = yield* Effect.all([prepare(registry), prepare(registry)], {

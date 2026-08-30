@@ -1,24 +1,21 @@
 import { assert, describe, it } from "@effect/vitest";
 
-import {
-  D1Profile,
-  providerCapabilityMatrix,
-  providerDialectName,
-  providerProfiles,
-} from "../../src/Provider.ts";
+import { D1Profile, providerCapabilityMatrix, providerProfiles } from "../../src/Provider.ts";
 
 describe("provider capability matrix", () => {
   it("is derived from the canonical provider profiles", () => {
     assert.deepStrictEqual(
       providerCapabilityMatrix,
       providerProfiles.map((profile) => ({
-        dialect: providerDialectName(profile.dialect),
+        provider: profile.provider._tag,
+        dialect: profile.dialect._tag,
+        execution: profile.execution,
         ...profile.capabilities,
       })),
     );
     assert.deepStrictEqual(
       providerProfiles.map((profile) => profile.dialect._tag),
-      ["Sqlite", "Libsql", "Postgres", "D1"],
+      ["Sqlite", "Sqlite", "Postgres", "Sqlite"],
     );
   });
 

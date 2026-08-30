@@ -40,9 +40,9 @@ describe("packed exports", () => {
         join(directory, "consumer.mjs"),
         `
 import { VERSION } from "capsuledb";
-import { D1 as D1Subpath } from "capsuledb/D1";
-import { Libsql as LibsqlSubpath } from "capsuledb/Libsql";
-import { Pg as PgSubpath } from "capsuledb/Pg";
+import { profile as d1Profile } from "capsuledb/D1";
+import { profile as libsqlProfile } from "capsuledb/Libsql";
+import { profile as postgresProfile } from "capsuledb/Pg";
 import { D1, Libsql, Pg } from "capsuledb";
 import packageJson from "capsuledb/package.json" with { type: "json" };
 
@@ -51,12 +51,12 @@ if (VERSION !== packageJson.version || VERSION !== ${JSON.stringify(packageJson.
 }
 
 const providerProfiles = [
-  [D1, D1Subpath, "D1"],
-  [Pg, PgSubpath, "Postgres"],
-  [Libsql, LibsqlSubpath, "Libsql"],
+  [D1, d1Profile, "D1"],
+  [Pg, postgresProfile, "Postgres"],
+  [Libsql, libsqlProfile, "Libsql"],
 ];
-for (const [rootProvider, subpathProvider, dialect] of providerProfiles) {
-  if (rootProvider.profile.dialect._tag !== dialect || subpathProvider.profile.dialect._tag !== dialect) {
+for (const [rootProvider, subpathProvider, provider] of providerProfiles) {
+  if (rootProvider.profile.provider._tag !== provider || subpathProvider.provider._tag !== provider) {
     throw new Error("Packed provider profile mismatch for " + dialect);
   }
 }

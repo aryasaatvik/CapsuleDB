@@ -28,10 +28,9 @@ describe("registry migration lifecycle", () => {
           name: "create-before-destructive",
           risk: "additive",
           providers: {
-            Sqlite: sqlMigrationBody(
+            Sqlite: sqlMigrationBody([
               'CREATE TABLE "lifecycle_before_destructive" (id TEXT PRIMARY KEY NOT NULL)',
-              ['CREATE TABLE "lifecycle_before_destructive" (id TEXT PRIMARY KEY NOT NULL)'],
-            ),
+            ]),
           },
         });
         const second = yield* makeMigration({
@@ -39,9 +38,7 @@ describe("registry migration lifecycle", () => {
           name: "drop-before-destructive",
           risk: "destructive",
           providers: {
-            Sqlite: sqlMigrationBody('DROP TABLE "lifecycle_before_destructive"', [
-              'DROP TABLE "lifecycle_before_destructive"',
-            ]),
+            Sqlite: sqlMigrationBody(['DROP TABLE "lifecycle_before_destructive"']),
           },
         });
         const capsule = yield* makeCapsule({
@@ -177,14 +174,12 @@ describe("registry migration lifecycle", () => {
           name: "provider-switch-probe",
           risk: "additive",
           providers: {
-            Sqlite: sqlMigrationBody(
+            Sqlite: sqlMigrationBody([
               'CREATE TABLE "lifecycle_provider_switch_sqlite" (id TEXT PRIMARY KEY NOT NULL)',
-              ['CREATE TABLE "lifecycle_provider_switch_sqlite" (id TEXT PRIMARY KEY NOT NULL)'],
-            ),
-            Libsql: sqlMigrationBody(
+            ]),
+            Libsql: sqlMigrationBody([
               'CREATE TABLE "lifecycle_provider_switch_libsql" (id TEXT PRIMARY KEY NOT NULL)',
-              ['CREATE TABLE "lifecycle_provider_switch_libsql" (id TEXT PRIMARY KEY NOT NULL)'],
-            ),
+            ]),
           },
         });
         const capsule = yield* makeCapsule({

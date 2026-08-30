@@ -1,9 +1,10 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError";
 import type * as Statement from "effect/unstable/sql/Statement";
 
 import { InvalidToken, TokenAlreadyConsumed, TokenNotFound } from "../../src/Error.ts";
+import { sha256 } from "../../src/internal/checksum.ts";
 
 const TOKEN_TABLE = "capsule_reference_2e_tokens";
 const AUDIT_TABLE = "capsule_reference_2e_token_audit";
@@ -42,15 +43,28 @@ export const AuditReceipt = Schema.Struct({
 
 export type AuditReceipt = typeof AuditReceipt.Type;
 
+/** Persistence failures are kept inside the reference capsule's domain boundary. */
+export class TokenPersistenceError extends Schema.TaggedError<TokenPersistenceError>()(
+  "TokenPersistenceError",
+  { operation: Schema.String, reason: Schema.String },
+) {}
+
 export interface OneTimeTokensService {
-  readonly issue: (expiresAt: unknown) => Effect.Effect<IssuedToken, InvalidToken | SqlError>;
+  readonly issue: (
+    expiresAt: unknown,
+  ) => Effect.Effect<IssuedToken, InvalidToken | TokenPersistenceError>;
   readonly get: (
     token: unknown,
-  ) => Effect.Effect<TokenState, InvalidToken | TokenNotFound | SqlError>;
+  ) => Effect.Effect<TokenState, InvalidToken | TokenNotFound | TokenPersistenceError>;
   readonly consume: (
     token: unknown,
-  ) => Effect.Effect<AuditReceipt, InvalidToken | TokenNotFound | TokenAlreadyConsumed | SqlError>;
-  readonly revoke: (token: unknown) => Effect.Effect<void, InvalidToken | TokenNotFound | SqlError>;
+  ) => Effect.Effect<
+    AuditReceipt,
+    InvalidToken | TokenNotFound | TokenAlreadyConsumed | TokenPersistenceError
+  >;
+  readonly revoke: (
+    token: unknown,
+  ) => Effect.Effect<void, InvalidToken | TokenNotFound | TokenPersistenceError>;
 }
 
 /** Effect service for the opaque one-time-token domain. */
@@ -58,12 +72,14 @@ export class OneTimeTokens extends Context.Service<OneTimeTokens, OneTimeTokensS
   "examples/reference-token/OneTimeTokens",
 ) {}
 
-interface TokenRow {
-  readonly expires_at: string;
-  readonly consumed_at: string | null;
-  readonly consumption_id: string | null;
-  readonly revoked_at: string | null;
-}
+const TokenRow = Schema.Struct({
+  expires_at: Schema.String,
+  consumed_at: Schema.NullOr(Schema.String),
+  consumption_id: Schema.NullOr(Schema.String),
+  revoked_at: Schema.NullOr(Schema.String),
+});
+
+type TokenRow = typeof TokenRow.Type;
 
 interface DatabaseInstant {
   readonly iso: string;
@@ -79,6 +95,9 @@ interface AtomicBatchSql extends SqlClient.SqlClient {
 
 const isAtomicBatchSql = (sql: SqlClient.SqlClient): sql is AtomicBatchSql =>
   typeof (sql as unknown as { readonly batch?: unknown }).batch === "function";
+
+const persistenceFailure = (operation: string, cause: unknown): TokenPersistenceError =>
+  new TokenPersistenceError({ operation, reason: String(cause) });
 
 const ISO_TIMESTAMP_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -142,18 +161,25 @@ const parseDatabaseTimestamp = (input: unknown): number | undefined => {
 
 const readDatabaseInstant = (
   sql: SqlClient.SqlClient,
-): Effect.Effect<DatabaseInstant, InvalidToken | SqlError> =>
+): Effect.Effect<DatabaseInstant, InvalidToken | TokenPersistenceError> =>
   Effect.gen(function* () {
-    const rows = yield* sql<{ readonly database_now: unknown }>`
+    const rows = yield* sql<Record<string, unknown>>`
       SELECT CURRENT_TIMESTAMP AS database_now`;
-    const timestamp = parseDatabaseTimestamp(rows[0]?.database_now);
+    const row = yield* Schema.decodeUnknownEffect(Schema.Struct({ database_now: Schema.Unknown }))(
+      rows[0],
+    ).pipe(Effect.mapError((cause) => persistenceFailure("read current timestamp", cause)));
+    const timestamp = parseDatabaseTimestamp(row.database_now);
     if (timestamp === undefined) {
       return yield* Effect.fail(
         new InvalidToken({ reason: "the database returned an invalid current timestamp" }),
       );
     }
     return { iso: new Date(timestamp).toISOString(), timestamp };
-  });
+  }).pipe(
+    Effect.catchIf(isSqlError, (error) =>
+      Effect.fail(persistenceFailure("read current timestamp", error)),
+    ),
+  );
 
 const decodeToken = (input: unknown): Effect.Effect<Token, InvalidToken> =>
   Effect.try({
@@ -163,13 +189,8 @@ const decodeToken = (input: unknown): Effect.Effect<Token, InvalidToken> =>
   });
 
 const digest = (token: Token): Effect.Effect<string, InvalidToken> =>
-  Effect.tryPromise({
-    try: () => globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),
-    catch: () => new InvalidToken({ reason: "the runtime could not hash the token" }),
-  }).pipe(
-    Effect.map((bytes) =>
-      Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join(""),
-    ),
+  sha256(token).pipe(
+    Effect.mapError(() => new InvalidToken({ reason: "the runtime could not hash the token" })),
   );
 
 const generateToken = (): Token =>
@@ -204,12 +225,19 @@ const validateExpiry = (
 const readToken = (
   sql: SqlClient.SqlClient,
   tokenHash: string,
-): Effect.Effect<TokenRow | undefined, SqlError> =>
+): Effect.Effect<TokenRow | undefined, TokenPersistenceError> =>
   Effect.gen(function* () {
-    const rows = yield* sql<TokenRow>`SELECT expires_at, consumed_at, consumption_id, revoked_at
+    const rows = yield* sql<
+      Record<string, unknown>
+    >`SELECT expires_at, consumed_at, consumption_id, revoked_at
       FROM ${sql(TOKEN_TABLE)} WHERE token_hash = ${tokenHash}`;
-    return rows[0];
-  });
+    if (rows[0] === undefined) return undefined;
+    return yield* Schema.decodeUnknownEffect(TokenRow)(rows[0]).pipe(
+      Effect.mapError((cause) => persistenceFailure("read token", cause)),
+    );
+  }).pipe(
+    Effect.catchIf(isSqlError, (error) => Effect.fail(persistenceFailure("read token", error))),
+  );
 
 const stateOf = (
   row: TokenRow,
@@ -238,7 +266,9 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
       yield* sql`INSERT INTO ${sql(TOKEN_TABLE)} (token_hash, expires_at, consumed_at)
         VALUES (${tokenHash}, ${validExpiry}, NULL)`;
       return { token, expiresAt: validExpiry };
-    }),
+    }).pipe(
+      Effect.catchIf(isSqlError, (error) => Effect.fail(persistenceFailure("issue token", error))),
+    ),
 
   get: (input) =>
     Effect.gen(function* () {
@@ -247,7 +277,9 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
       const row = yield* readToken(sql, tokenHash);
       if (row === undefined) return yield* Effect.fail(new TokenNotFound({ token: "redacted" }));
       return yield* stateOf(row, yield* readDatabaseInstant(sql));
-    }),
+    }).pipe(
+      Effect.catchIf(isSqlError, (error) => Effect.fail(persistenceFailure("get token", error))),
+    ),
 
   consume: (input) =>
     Effect.gen(function* () {
@@ -257,7 +289,7 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
 
       if (isAtomicBatchSql(sql)) {
         const databaseNow = yield* readDatabaseInstant(sql);
-        const updatedStatement = sql<TokenRow>`UPDATE ${sql(TOKEN_TABLE)}
+        const updatedStatement = sql`UPDATE ${sql(TOKEN_TABLE)}
           SET consumed_at = ${databaseNow.iso}, consumption_id = ${consumptionId}
           WHERE token_hash = ${tokenHash}
             AND consumed_at IS NULL
@@ -272,7 +304,9 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
             WHERE token_hash = ${tokenHash} AND consumption_id = ${consumptionId}
           )`;
         const results = yield* sql.batch([updatedStatement, auditStatement]);
-        const updated = (results[0] ?? []) as ReadonlyArray<TokenRow>;
+        const updated = yield* Schema.decodeUnknownEffect(Schema.Array(TokenRow))(
+          results[0] ?? [],
+        ).pipe(Effect.mapError((cause) => persistenceFailure("consume token", cause)));
         if (updated.length === 0) {
           const current = yield* readToken(sql, tokenHash);
           if (current?.consumed_at !== null && current?.consumed_at !== undefined) {
@@ -303,7 +337,7 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
             return yield* Effect.fail(new TokenNotFound({ token: "redacted" }));
           }
 
-          const updated = yield* sql<TokenRow>`UPDATE ${sql(TOKEN_TABLE)}
+          const updated = yield* sql<Record<string, unknown>>`UPDATE ${sql(TOKEN_TABLE)}
             SET consumed_at = ${databaseNow.iso}, consumption_id = ${consumptionId}
             WHERE token_hash = ${tokenHash}
               AND consumed_at IS NULL
@@ -311,7 +345,10 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
               AND revoked_at IS NULL
               AND expires_at > ${databaseNow.iso}
             RETURNING expires_at, consumed_at, consumption_id, revoked_at`;
-          if (updated.length === 0) {
+          const decodedUpdated = yield* Schema.decodeUnknownEffect(Schema.Array(TokenRow))(
+            updated,
+          ).pipe(Effect.mapError((cause) => persistenceFailure("consume token", cause)));
+          if (decodedUpdated.length === 0) {
             const current = yield* readToken(sql, tokenHash);
             if (current?.consumed_at !== null && current?.consumed_at !== undefined) {
               return yield* Effect.fail(
@@ -326,25 +363,29 @@ const makeService = (sql: SqlClient.SqlClient): OneTimeTokensService => ({
           return { token, consumedAt: databaseNow.iso };
         }),
       );
-    }),
+    }).pipe(
+      Effect.catchIf(isSqlError, (error) =>
+        Effect.fail(persistenceFailure("consume token", error)),
+      ),
+    ),
 
   revoke: (input) =>
     Effect.gen(function* () {
       const token = yield* decodeToken(input);
       const tokenHash = yield* digest(token);
       const databaseNow = yield* readDatabaseInstant(sql);
-      const updated = yield* sql<TokenRow>`UPDATE ${sql(TOKEN_TABLE)}
+      const updated = yield* sql<Record<string, unknown>>`UPDATE ${sql(TOKEN_TABLE)}
         SET revoked_at = ${databaseNow.iso}
         WHERE token_hash = ${tokenHash} AND consumed_at IS NULL AND revoked_at IS NULL
         RETURNING expires_at, consumed_at, revoked_at`;
       if (updated.length === 0) return yield* Effect.fail(new TokenNotFound({ token: "redacted" }));
-    }),
+    }).pipe(
+      Effect.catchIf(isSqlError, (error) => Effect.fail(persistenceFailure("revoke token", error))),
+    ),
 });
 
 /** Host-supplied SQL client layer for the package-owned domain service. */
-export namespace OneTimeTokens {
-  export const layer: Layer.Layer<OneTimeTokens, never, SqlClient.SqlClient> = Layer.effect(
-    OneTimeTokens,
-    Effect.map(Effect.service(SqlClient.SqlClient), makeService),
-  );
-}
+export const layer: Layer.Layer<OneTimeTokens, never, SqlClient.SqlClient> = Layer.effect(
+  OneTimeTokens,
+  Effect.map(Effect.service(SqlClient.SqlClient), makeService),
+);

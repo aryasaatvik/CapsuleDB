@@ -4,17 +4,19 @@ import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { makeCapsule } from "../../src/Capsule.ts";
-import { decodeManifest } from "../../src/Manifest.ts";
+import { buildManifest } from "../../src/Manifest.ts";
 import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
 import { BunSqliteProfile } from "../../src/Provider.ts";
 import { assertRegistryReady, makeRegistry, plan, prepare, status } from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
-import { OneTimeTokens } from "../../examples/reference-token/OneTimeTokens.ts";
-import referenceManifest from "../fixtures/reference-token-manifest.json" with { type: "json" };
+import {
+  OneTimeTokens,
+  layer as tokenLayer,
+} from "../../examples/reference-token/OneTimeTokens.ts";
 
 const withSqlite = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
-    Effect.provide(OneTimeTokens.layer),
+    Effect.provide(tokenLayer),
     Effect.provide(SqliteClient.layer({ filename: ":memory:" })),
     Effect.scoped,
   );
@@ -31,7 +33,7 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
         const sql = yield* Effect.service(SqlClient.SqlClient);
 
         const registryPlan = yield* plan(registry);
-        const publishedManifest = yield* decodeManifest(referenceManifest);
+        const publishedManifest = yield* buildManifest({ capsules: [capsule] });
         assert.deepStrictEqual(registryPlan.manifest, publishedManifest);
 
         const pending = yield* status(registry);
@@ -109,7 +111,7 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
           name: "failing-marker",
           risk: "additive",
           providers: {
-            Sqlite: sqlMigrationBody("failing-marker-source", [
+            Sqlite: sqlMigrationBody([
               'CREATE TABLE "capsule_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
               "THIS IS NOT VALID SQL",
             ]),
@@ -159,7 +161,7 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
           BEFORE INSERT ON "capsule_reference_2e_token_audit"
           BEGIN SELECT RAISE(ABORT, 'audit failure'); END`);
         const failure = yield* service.consume(issued.token).pipe(Effect.flip);
-        assert.strictEqual(failure._tag, "SqlError");
+        assert.strictEqual(failure._tag, "TokenPersistenceError");
         assert.strictEqual((yield* service.get(issued.token))._tag, "Pending");
         const auditRows = yield* sql<{ readonly count: number }>`SELECT COUNT(*) AS count
           FROM "capsule_reference_2e_token_audit"`;
@@ -216,7 +218,7 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
             const service = yield* Effect.service(OneTimeTokens);
             const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
             yield* service.revoke(issued.token);
-          }).pipe(Effect.provide(OneTimeTokens.layer)),
+          }).pipe(Effect.provide(tokenLayer)),
         );
         assert.deepStrictEqual(yield* sql<{ readonly value: number }>`SELECT 2 AS value`, [
           { value: 2 },
