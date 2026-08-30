@@ -122,6 +122,23 @@ export const makeProviderProfile = (
       profile.provider ??
       (profile.dialect._tag === "Postgres" ? { _tag: "Postgres" } : { _tag: "BunSqlite" });
     const execution = profile.execution ?? profile.capabilities._tag;
+    const expectedDialect = provider._tag === "Postgres" ? "Postgres" : "Sqlite";
+    if (profile.dialect._tag !== expectedDialect) {
+      return yield* Effect.fail(
+        new InvalidDefinition({
+          subject: "provider profile",
+          reason: `${provider._tag} requires the ${expectedDialect} SQL dialect`,
+        }),
+      );
+    }
+    if (execution !== profile.capabilities._tag) {
+      return yield* Effect.fail(
+        new InvalidDefinition({
+          subject: "provider profile",
+          reason: `execution ${execution} does not match capability ${profile.capabilities._tag}`,
+        }),
+      );
+    }
     if (provider._tag === "D1" && profile.capabilities._tag !== "AtomicBatch") {
       return yield* Effect.fail(
         new UnsupportedCapability({

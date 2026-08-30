@@ -82,6 +82,17 @@ describe("CapsuleDB definition contracts", () => {
     }),
   );
 
+  it.effect("rejects provider profiles that mix identity and SQL dialect", () =>
+    Effect.gen(function* () {
+      const result = yield* makeProviderProfile({
+        provider: D1Profile.provider,
+        dialect: { _tag: "Postgres" },
+        capabilities: D1Profile.capabilities,
+      }).pipe(Effect.flip);
+      assert.strictEqual(result._tag, "InvalidDefinition");
+    }),
+  );
+
   it.effect("requires a migration implementation for the selected provider", () =>
     Effect.gen(function* () {
       const migration = yield* makeMigration({

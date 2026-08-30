@@ -987,8 +987,12 @@ export const prepare = (
     // should have committed metadata together with the claims.
     const firstLedgerRow = ledgerRows[0];
     if (metadata === undefined && firstLedgerRow !== undefined) {
+      const providerStamped = activeLedgerRows(registry, ledgerRows).every(
+        (row) => row.provider === expectedProvider,
+      );
       if (
         registry.provider.capabilities._tag === "AtomicBatch" &&
+        providerStamped &&
         hasCompleteLedger(registry, registryPlan, ledgerRows)
       ) {
         yield* writeMetadata(sql, registryPlan, expectedProvider);
