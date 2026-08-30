@@ -19,7 +19,7 @@ import {
   RegistryCorrupt,
   type CapsuleError,
 } from "./Error.ts";
-import type { Migration, MigrationBody } from "./Migration.ts";
+import { resolveMigrationImplementation, type Migration, type MigrationBody } from "./Migration.ts";
 import {
   buildManifest,
   type Manifest,
@@ -34,7 +34,7 @@ import {
 } from "./Readiness.ts";
 import {
   makeProviderProfile,
-  providerDialectName,
+  providerName,
   type ProviderProfile,
   type ProviderProfileError,
 } from "./Provider.ts";
@@ -59,6 +59,12 @@ export interface Registry {
   readonly provider: ProviderProfile;
   readonly capsules: ReadonlyArray<AnyCapsule>;
 }
+
+/** Resolve an implementation by exact provider, then SQL dialect fallback. */
+const resolveMigrationBody = (
+  migration: Migration,
+  provider: ProviderProfile,
+): MigrationBody | undefined => resolveMigrationImplementation(migration, provider);
 
 export type RegistryError =
   | ProviderProfileError
@@ -115,7 +121,7 @@ export const makeRegistry = (options: RegistryOptions): Effect.Effect<Registry, 
         }
         seenMigrationIds.push(migration.id);
 
-        const implementation = migration.providers[provider.dialect._tag];
+        const implementation = resolveMigrationBody(migration, provider);
         if (implementation === undefined) {
           return yield* Effect.fail(
             new MissingProviderMigration({
@@ -431,7 +437,7 @@ const migrationBody = (
   migration: Migration,
 ): Effect.Effect<MigrationBody, MissingProviderMigration> =>
   Effect.gen(function* () {
-    const body = migration.providers[registry.provider.dialect._tag];
+    const body = resolveMigrationBody(migration, registry.provider);
     if (body === undefined) {
       return yield* Effect.fail(
         new MissingProviderMigration({
@@ -488,7 +494,7 @@ const applyTransactional = (
       migrationId: migration.id,
       name: migration.name,
       checksum: manifestMigration.checksum,
-      provider: providerDialectName(registry.provider.dialect),
+      provider: providerName(registry.provider.provider),
       body,
     }).pipe(
       Effect.tap(() =>
@@ -569,7 +575,7 @@ const applyD1 = (
       migrationId: migration.id,
       name: migration.name,
       checksum: manifestMigration.checksum,
-      provider: providerDialectName(registry.provider.dialect),
+      provider: providerName(registry.provider.provider),
       body,
     }).pipe(
       Effect.match({
@@ -668,7 +674,7 @@ const preflightD1Pending = (
           migrationId: migration.id,
           name: migration.name,
           checksum: manifestMigration.checksum,
-          provider: providerDialectName(registry.provider.dialect),
+          provider: providerName(registry.provider.provider),
           body,
         });
       }
@@ -755,7 +761,7 @@ export const plan = (
   Effect.gen(function* () {
     const registryPlan = yield* manifestPlan(registry);
     const sql = yield* Effect.service(SqlClient.SqlClient);
-    const expectedProvider = providerDialectName(registry.provider.dialect);
+    const expectedProvider = providerName(registry.provider.provider);
     const tablesExist = yield* runtimeTablesExist(sql, registry.provider);
     if (tablesExist === "none") {
       return Object.freeze({
@@ -924,7 +930,7 @@ const preparePostgres = (
       const ledgerRows = yield* readLedgerRows(sql);
       yield* validateExistingLedger(registry, registryPlan, ledgerRows);
       yield* applyPending(sql, registry, registryPlan, options);
-      yield* writeMetadata(sql, registryPlan, providerDialectName(registry.provider.dialect));
+      yield* writeMetadata(sql, registryPlan, providerName(registry.provider.provider));
     }),
   );
 
@@ -963,7 +969,7 @@ export const prepare = (
     yield* validateExistingLedger(registry, registryPlan, ledgerRows);
 
     const metadata = yield* readMetadata(sql);
-    const expectedProvider = providerDialectName(registry.provider.dialect);
+    const expectedProvider = providerName(registry.provider.provider);
     if (metadata !== undefined && metadata.provider !== expectedProvider) {
       yield* Effect.logWarning("CapsuleDB provider diverged").pipe(
         Effect.annotateLogs("expected_provider", expectedProvider),
@@ -1088,7 +1094,7 @@ export const assertRegistryReady = (
     }
     return makeReadinessReceipt(
       registryPlan.manifest.fingerprint,
-      providerDialectName(registry.provider.dialect),
+      providerName(registry.provider.provider),
       registry.capsules.length,
     );
   });

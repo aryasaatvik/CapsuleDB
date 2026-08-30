@@ -3,12 +3,15 @@ import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { makeCapsule } from "../../src/Capsule.ts";
-import { D1 } from "../../src/D1.ts";
+import { profile as d1Profile } from "../../src/D1.ts";
 import { LedgerConflict } from "../../src/Error.ts";
 import { effectMigrationBody, makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
 import { makeRegistry, prepare } from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
-import { OneTimeTokens } from "../../examples/reference-token/OneTimeTokens.ts";
+import {
+  OneTimeTokens,
+  layer as tokenLayer,
+} from "../../examples/reference-token/OneTimeTokens.ts";
 import { withD1 } from "./d1.ts";
 
 const limitedD1 = (limits: {
@@ -16,8 +19,8 @@ const limitedD1 = (limits: {
   readonly maxSqlStatementBytes?: number;
   readonly maxBoundParameters?: number;
 }) => ({
-  ...D1.profile,
-  capabilities: { ...D1.profile.capabilities, ...limits },
+  ...d1Profile,
+  capabilities: { ...d1Profile.capabilities, ...limits },
 });
 
 describe("D1 atomic migration runner", () => {
@@ -32,10 +35,9 @@ describe("D1 atomic migration runner", () => {
               name: "first-valid-migration",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody(
+                D1: sqlMigrationBody([
                   'CREATE TABLE "d1_preflight_first" (id TEXT PRIMARY KEY NOT NULL)',
-                  ['CREATE TABLE "d1_preflight_first" (id TEXT PRIMARY KEY NOT NULL)'],
-                ),
+                ]),
               },
             });
             const second = yield* makeMigration({
@@ -43,7 +45,7 @@ describe("D1 atomic migration runner", () => {
               name: "second-over-limit-migration",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody("two statements exceed the default batch", [
+                D1: sqlMigrationBody([
                   'CREATE TABLE "d1_preflight_second_a" (id TEXT PRIMARY KEY NOT NULL)',
                   'CREATE TABLE "d1_preflight_second_b" (id TEXT PRIMARY KEY NOT NULL)',
                 ]),
@@ -55,7 +57,7 @@ describe("D1 atomic migration runner", () => {
               layer: Layer.empty,
             });
             const registry = yield* makeRegistry({
-              provider: D1.profile,
+              provider: d1Profile,
               capsules: [capsule],
             });
             const failure = yield* prepare(registry).pipe(Effect.flip);
@@ -87,7 +89,7 @@ describe("D1 atomic migration runner", () => {
               name: "failing-d1-migration",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody("failing-d1-migration", [
+                D1: sqlMigrationBody([
                   'CREATE TABLE "d1_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
                   "THIS IS NOT VALID SQL",
                 ]),
@@ -131,10 +133,9 @@ describe("D1 atomic migration runner", () => {
               name: "concurrent-d1-migration",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody(
+                D1: sqlMigrationBody([
                   'CREATE TABLE "d1_concurrent_marker" (id TEXT PRIMARY KEY NOT NULL)',
-                  ['CREATE TABLE "d1_concurrent_marker" (id TEXT PRIMARY KEY NOT NULL)'],
-                ),
+                ]),
               },
             });
             const capsule = yield* makeCapsule({
@@ -143,7 +144,7 @@ describe("D1 atomic migration runner", () => {
               layer: Layer.empty,
             });
             const registry = yield* makeRegistry({
-              provider: D1.profile,
+              provider: d1Profile,
               capsules: [capsule],
             });
             const receipts = yield* Effect.all([prepare(registry), prepare(registry)], {
@@ -172,10 +173,9 @@ describe("D1 atomic migration runner", () => {
               name: "d1-name-conflict",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody(
+                D1: sqlMigrationBody([
                   'CREATE TABLE "d1_name_conflict" (id TEXT PRIMARY KEY NOT NULL)',
-                  ['CREATE TABLE "d1_name_conflict" (id TEXT PRIMARY KEY NOT NULL)'],
-                ),
+                ]),
               },
             });
             const capsule = yield* makeCapsule({
@@ -184,7 +184,7 @@ describe("D1 atomic migration runner", () => {
               layer: Layer.empty,
             });
             const registry = yield* makeRegistry({
-              provider: D1.profile,
+              provider: d1Profile,
               capsules: [capsule],
             });
             const conflictClient = new Proxy(client, {
@@ -228,7 +228,7 @@ describe("D1 atomic migration runner", () => {
           Effect.gen(function* () {
             const capsule = yield* referenceTokenCapsule;
             const registry = yield* makeRegistry({
-              provider: D1.profile,
+              provider: d1Profile,
               capsules: [capsule],
             });
             yield* prepare(registry);
@@ -254,7 +254,7 @@ describe("D1 atomic migration runner", () => {
                 FROM "capsule_reference_2e_token_audit"`,
               [{ count: 1 }],
             );
-          }).pipe(Effect.provide(OneTimeTokens.layer)),
+          }).pipe(Effect.provide(tokenLayer)),
         ),
       ),
     60_000,
@@ -271,9 +271,7 @@ describe("D1 atomic migration runner", () => {
               name: "oversized-d1-migration",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody('CREATE TABLE "d1_oversized_marker" (value TEXT NOT NULL)', [
-                  'CREATE TABLE "d1_oversized_marker" (value TEXT NOT NULL)',
-                ]),
+                D1: sqlMigrationBody(['CREATE TABLE "d1_oversized_marker" (value TEXT NOT NULL)']),
               },
             });
             const capsule = yield* makeCapsule({
@@ -315,7 +313,7 @@ describe("D1 atomic migration runner", () => {
           layer: Layer.empty,
         });
         const failure = yield* makeRegistry({
-          provider: D1.profile,
+          provider: d1Profile,
           capsules: [capsule],
         }).pipe(Effect.flip);
         assert.strictEqual(failure._tag, "ProviderMismatch");

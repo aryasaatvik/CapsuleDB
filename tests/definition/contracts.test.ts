@@ -3,7 +3,11 @@ import { Effect, Layer } from "effect";
 
 import { deriveNamespace, makeCapsule } from "../../src/Capsule.ts";
 import { DuplicateCapsule, NamespaceCollision, UnsupportedCapability } from "../../src/Error.ts";
-import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
+import {
+  makeMigration,
+  resolveMigrationImplementation,
+  sqlMigrationBody,
+} from "../../src/Migration.ts";
 import { BunSqliteProfile, D1Profile, makeProviderProfile } from "../../src/Provider.ts";
 import { makeRegistry } from "../../src/Registry.ts";
 
@@ -64,6 +68,7 @@ describe("CapsuleDB definition contracts", () => {
   it.effect("does not allow D1 to advertise transactional execution", () =>
     Effect.gen(function* () {
       const result = yield* makeProviderProfile({
+        provider: D1Profile.provider,
         dialect: D1Profile.dialect,
         capabilities: BunSqliteProfile.capabilities,
       }).pipe(Effect.flip);
@@ -84,9 +89,7 @@ describe("CapsuleDB definition contracts", () => {
         name: "create-private-state",
         risk: "additive",
         providers: {
-          Sqlite: sqlMigrationBody("CREATE TABLE private_state", [
-            "CREATE TABLE private_state (id TEXT)",
-          ]),
+          Postgres: sqlMigrationBody(["CREATE TABLE private_state (id TEXT)"]),
         },
       });
       const capsule = yield* makeCapsule({
@@ -98,6 +101,27 @@ describe("CapsuleDB definition contracts", () => {
         Effect.flip,
       );
       assert.strictEqual(result._tag, "MissingProviderMigration");
+    }),
+  );
+
+  it.effect("resolves exact provider overrides before shared SQL dialect defaults", () =>
+    Effect.gen(function* () {
+      const migration = yield* makeMigration({
+        id: 1,
+        name: "provider-override",
+        risk: "additive",
+        providers: {
+          Sqlite: sqlMigrationBody(["SELECT dialect"]),
+          BunSqlite: sqlMigrationBody(["SELECT provider"]),
+        },
+      });
+      const providerImplementation = resolveMigrationImplementation(migration, BunSqliteProfile);
+      const dialectImplementation = resolveMigrationImplementation(migration, D1Profile);
+      if (providerImplementation?._tag !== "Sql" || dialectImplementation?._tag !== "Sql") {
+        throw new Error("expected static SQL implementations");
+      }
+      assert.deepStrictEqual(providerImplementation.statements, ["SELECT provider"]);
+      assert.deepStrictEqual(dialectImplementation.statements, ["SELECT dialect"]);
     }),
   );
 });

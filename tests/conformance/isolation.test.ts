@@ -39,18 +39,10 @@ const isolationCapsule = Effect.gen(function* () {
     name: "create-isolation-probe",
     risk: "additive",
     providers: {
-      Sqlite: sqlMigrationBody(`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`, [
-        `CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`,
-      ]),
-      Libsql: sqlMigrationBody(`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`, [
-        `CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`,
-      ]),
-      Postgres: sqlMigrationBody(`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`, [
-        `CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`,
-      ]),
-      D1: sqlMigrationBody(`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`, [
-        `CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`,
-      ]),
+      Sqlite: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
+      Libsql: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
+      Postgres: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
+      D1: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
     },
   });
   return yield* makeCapsule({
