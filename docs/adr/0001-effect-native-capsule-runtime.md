@@ -77,6 +77,27 @@ sandbox package-authored raw SQL or service-layer code. Package authors are
 trusted in v0.1 and remain responsible for avoiding cross-capsule physical
 composition; hosts should treat package migration and service code as trusted.
 
+The manifest CLI is an explicit build-time projection of those same definitions:
+it accepts a named module export, delegates manifest generation and validation
+to the canonical operations, and never scans dependencies. Optional D1 files
+are generated only from static D1 bodies already represented in a validated
+manifest. They are deterministic deployment aids and do not replace
+`Registry.prepare`, which remains responsible for the claim-first ledger and
+readiness contract.
+
+## Consequences
+
+- Capsule authors can persist and check a reproducible fingerprint without
+  exposing physical tables or giving the host an implicit discovery mechanism.
+- Hosts can run `prepare` against their existing client and gate service
+  exposure on a complete readiness receipt.
+- D1 gets a bounded static artifact path for tooling while retaining one
+  canonical runtime path; Wrangler and account configuration remain outside
+  this package.
+- A packed release candidate can be tested through the package export map and
+  CLI bin without making publication or repository visibility part of the
+  runtime contract.
+
 ## Rejected alternatives
 
 - **ORM/table-first API:** would make persistence details the public contract
@@ -86,3 +107,8 @@ composition; hosts should treat package migration and service code as trusted.
   bounded atomic-batch profile instead.
 - **Host namespace/table renaming:** would make physical identity mutable and
   undermine collision detection and manifest fingerprints.
+- **Implicit module/dependency discovery:** would make the release output
+  depend on installation topology and obscure which package definitions a host
+  trusts; the CLI requires an explicit module and export instead.
+- **Artifact-as-runtime authority:** would bypass the claim ledger and
+  readiness checks; static D1 files remain optional projections only.
