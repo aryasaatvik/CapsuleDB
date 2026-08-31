@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect";
 import { makeCapsule } from "../../src/Capsule.ts";
 import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
 import { profile as postgresProfile } from "../../src/Pg.ts";
-import { makeRegistry, prepare, status } from "../../src/Registry.ts";
+import { makeRegistry, plan, prepare, status } from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import {
   OneTimeTokens,
@@ -40,6 +40,45 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
 
           const rows = yield* client<{ readonly value: number }>`SELECT 2 AS value`;
           assert.deepStrictEqual(rows, [{ value: 2 }]);
+        }),
+      ),
+    60_000,
+  );
+
+  it.effect(
+    "fails closed when an active ledger row carries another provider stamp",
+    () =>
+      withPostgres((client) =>
+        Effect.gen(function* () {
+          const capsule = yield* referenceTokenCapsule;
+          const registry = yield* makeRegistry({
+            provider: postgresProfile,
+            capsules: [capsule],
+          });
+          const receipt = yield* prepare(registry);
+          yield* client`UPDATE "capsuledb_registry_ledger"
+            SET provider = 'sqlite'
+            WHERE capsule_id = 'reference.tokens'`;
+
+          const databasePlan = yield* plan(registry);
+          assert.strictEqual(databasePlan.state._tag, "Divergent");
+          if (databasePlan.state._tag === "Divergent") {
+            assert.strictEqual(databasePlan.state.reason, "provider-stamped ledger mismatch");
+          }
+          assert.strictEqual((yield* status(registry))._tag, "Stale");
+
+          const failure = yield* prepare(registry).pipe(Effect.flip);
+          assert.strictEqual(failure._tag, "ProviderMismatch");
+          assert.deepStrictEqual(
+            yield* client<{ readonly fingerprint: string; readonly provider: string }>`SELECT
+              fingerprint, provider FROM "capsuledb_registry_metadata" WHERE id = 1`,
+            [{ fingerprint: receipt.fingerprint, provider: "postgres" }],
+          );
+          assert.deepStrictEqual(
+            yield* client<{ readonly provider: string }>`SELECT DISTINCT provider
+              FROM "capsuledb_registry_ledger" WHERE capsule_id = 'reference.tokens'`,
+            [{ provider: "sqlite" }],
+          );
         }),
       ),
     60_000,
