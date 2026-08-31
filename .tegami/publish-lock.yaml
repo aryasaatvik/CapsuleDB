@@ -1,0 +1,13 @@
+core:changelogs:
+  - content: "---\npackages:\n  group:public:\n    type: minor\n---\n\n### The first capsule\n\nThe first public release of CapsuleDB, providing Effect-native database capsules,\nappend-only migrations, and transactional PostgreSQL, Bun SQLite, and libSQL\nprovider support.\n"
+    filename: 2026-09-01-first-release.md
+    v: 0.0.0
+core:packages:
+  - changelogIds:
+      - 2026-09-01-first-release.md
+    id: npm:capsuledb
+    updated: true
+npm:mark-latest:
+  - id: npm:capsuledb
+npm:packages:
+  - id: npm:capsuledb
