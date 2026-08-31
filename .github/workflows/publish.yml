@@ -1,9 +1,9 @@
 name: Publish
 
-# The first npm release is intentionally manual. Change this trigger to
-# `push: branches: [main]` after the initial package publication is complete.
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 concurrency:
   group: publish
