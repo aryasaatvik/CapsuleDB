@@ -20,6 +20,12 @@ bun run build
 Add focused tests for observable behavior and document exported contracts.
 Public API changes should include the relevant type and packed-artifact proof.
 
+## Releases
+
+CapsuleDB uses Tegami for changelogs, versioning, and subsequent npm releases.
+The first `0.1.0` publication is manual; see the [release runbook](docs/releasing.md)
+before enabling the publish workflow's `main` push trigger.
+
 ## Compatibility
 
 The public contract is pre-1.0 and may change directly. Once a stable contract
