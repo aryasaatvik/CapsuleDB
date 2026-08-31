@@ -118,6 +118,8 @@ describe("registry migration lifecycle", () => {
         yield* prepare(registry);
         const sql = yield* Effect.service(SqlClient.SqlClient);
         yield* sql.unsafe("INSERT INTO \"lifecycle_removed_capsule\" (id) VALUES ('retained')");
+        yield* sql`UPDATE "capsuledb_registry_ledger" SET provider = 'libsql'
+          WHERE capsule_id = 'lifecycle.removed'`;
 
         const emptyRegistry = yield* makeRegistry({ provider: BunSqliteProfile, capsules: [] });
         yield* prepare(emptyRegistry);
@@ -126,6 +128,8 @@ describe("registry migration lifecycle", () => {
           [{ id: "retained" }],
         );
 
+        yield* sql`UPDATE "capsuledb_registry_ledger" SET provider = 'sqlite'
+          WHERE capsule_id = 'lifecycle.removed'`;
         yield* prepare(registry);
         assert.deepStrictEqual(
           yield* sql<{ readonly id: string }>`SELECT id FROM "lifecycle_removed_capsule"`,
@@ -166,7 +170,7 @@ describe("registry migration lifecycle", () => {
     ),
   );
 
-  it.effect("fails closed when the migration ledger survives deleted metadata", () =>
+  it.effect("fails closed when another provider ledger survives deleted metadata", () =>
     withSqlite(
       Effect.gen(function* () {
         const migration = yield* makeMigration({
@@ -200,7 +204,7 @@ describe("registry migration lifecycle", () => {
           capsules: [capsule],
         });
         const failure = yield* prepare(libsqlRegistry).pipe(Effect.flip);
-        assert.strictEqual(failure._tag, "PartialMigration");
+        assert.strictEqual(failure._tag, "ProviderMismatch");
         assert.deepStrictEqual(
           yield* sql<{ readonly name: string }>`SELECT name FROM sqlite_master
             WHERE type = 'table' AND name = 'lifecycle_provider_switch_libsql'`,

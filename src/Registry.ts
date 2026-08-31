@@ -370,6 +370,7 @@ const hasCompleteLedger = (
         ledgerRow === undefined ||
         ledgerRow.name !== migration.name ||
         ledgerRow.checksum !== manifestMigration.checksum ||
+        ledgerRow.provider !== providerName(registry.provider.provider) ||
         ledgerRow.applied_at.length === 0
       ) {
         return false;
@@ -386,6 +387,7 @@ const validateExistingLedger = (
   ledgerRows: ReadonlyArray<LedgerRow>,
 ): Effect.Effect<void, DatabaseAhead | LedgerConflict | ProviderMismatch> =>
   Effect.gen(function* () {
+    const expectedProvider = providerName(registry.provider.provider);
     for (const row of ledgerRows) {
       const capsule = registry.capsules.find((candidate) => candidate.id === row.capsule_id);
       // A removed capsule retains its ledger rows and physical objects. It is
@@ -399,6 +401,11 @@ const validateExistingLedger = (
       const manifestMigration = manifestCapsule?.migrations.find(
         (candidate) => candidate.id === row.migration_id,
       );
+      if (row.provider !== expectedProvider) {
+        return yield* Effect.fail(
+          new ProviderMismatch({ dialect: expectedProvider, mode: row.provider }),
+        );
+      }
       if (migration === undefined || manifestMigration === undefined) {
         return yield* Effect.fail(
           new DatabaseAhead({
