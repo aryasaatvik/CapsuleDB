@@ -57,8 +57,8 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
           });
           const receipt = yield* prepare(registry);
           yield* client`UPDATE "capsuledb_registry_ledger"
-            SET provider = 'sqlite'
-            WHERE capsule_id = 'reference.tokens'`;
+            SET migration_id = 99, provider = 'sqlite'
+            WHERE capsule_id = 'reference.tokens' AND migration_id = 1`;
 
           const databasePlan = yield* plan(registry);
           assert.strictEqual(databasePlan.state._tag, "Divergent");
@@ -76,8 +76,9 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
           );
           assert.deepStrictEqual(
             yield* client<{ readonly provider: string }>`SELECT DISTINCT provider
-              FROM "capsuledb_registry_ledger" WHERE capsule_id = 'reference.tokens'`,
-            [{ provider: "sqlite" }],
+              FROM "capsuledb_registry_ledger" WHERE capsule_id = 'reference.tokens'
+              ORDER BY provider`,
+            [{ provider: "postgres" }, { provider: "sqlite" }],
           );
         }),
       ),

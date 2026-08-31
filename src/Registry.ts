@@ -401,6 +401,11 @@ const validateExistingLedger = (
       const manifestMigration = manifestCapsule?.migrations.find(
         (candidate) => candidate.id === row.migration_id,
       );
+      if (row.provider !== expectedProvider) {
+        return yield* Effect.fail(
+          new ProviderMismatch({ dialect: expectedProvider, mode: row.provider }),
+        );
+      }
       if (migration === undefined || manifestMigration === undefined) {
         return yield* Effect.fail(
           new DatabaseAhead({
@@ -408,11 +413,6 @@ const validateExistingLedger = (
             migrationId: row.migration_id,
             name: row.name,
           }),
-        );
-      }
-      if (row.provider !== expectedProvider) {
-        return yield* Effect.fail(
-          new ProviderMismatch({ dialect: expectedProvider, mode: row.provider }),
         );
       }
       if (row.checksum !== manifestMigration.checksum || row.name !== migration.name) {
