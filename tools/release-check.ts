@@ -15,7 +15,12 @@ const requiredFiles = [
 ] as const;
 
 if (packageJson.name !== "capsuledb") throw new Error("package name must remain capsuledb");
-if (packageJson.version !== "0.1.0") throw new Error("release candidate version must remain 0.1.0");
+if (
+  typeof packageJson.version !== "string" ||
+  !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(packageJson.version)
+) {
+  throw new Error("package version must be valid semantic version");
+}
 if (packageJson.license !== "MIT") throw new Error("release candidate must remain MIT licensed");
 if (packageJson.author !== "Saatvik Arya") throw new Error("package author changed unexpectedly");
 if (packageJson.bin?.capsuledb !== "./dist/cli.mjs") {
