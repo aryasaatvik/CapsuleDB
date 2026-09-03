@@ -83,7 +83,7 @@ describe("CapsuleDB manifest CLI", () => {
       ok: true,
       command: "manifest.check",
       manifest: firstPath,
-      fingerprint: "00bdde946bb695cb8bc142d66fd2d1246c88c88a7f4fd2eaf9b72aea0aef5194",
+      fingerprint: "fce32d5c34be03540e8cb95891030d32d893e0e5d50eda10566eeca69a9c7327",
       capsules: 1,
       migrations: 2,
     });
@@ -228,7 +228,7 @@ describe("CapsuleDB manifest CLI", () => {
       ok: true,
       command: "d1.check",
       artifact: artifactDirectory,
-      manifestFingerprint: "00bdde946bb695cb8bc142d66fd2d1246c88c88a7f4fd2eaf9b72aea0aef5194",
+      manifestFingerprint: "fce32d5c34be03540e8cb95891030d32d893e0e5d50eda10566eeca69a9c7327",
       files: artifact.files.map((file) => file.path),
     });
   });

@@ -3,9 +3,7 @@ import { Layer } from "effect";
 import * as Capsule from "../../src/Capsule.ts";
 import * as Migration from "../../src/Migration.ts";
 
-const DIALECT_SOURCE = ["Sqlite", "Postgres"] as const;
-
-/** One additive migration whose body is identical on every dialect. */
+/** One additive migration whose raw body is identical on every dialect. */
 export const makeFixtureMigration = (
   id: number,
   name: string,
@@ -15,9 +13,7 @@ export const makeFixtureMigration = (
     id,
     name,
     risk: "additive",
-    providers: Object.fromEntries(
-      DIALECT_SOURCE.map((dialect) => [dialect, Migration.sqlBody([source])]),
-    ),
+    steps: [Migration.sql({ postgres: [source], sqlite: [source] })],
   });
 
 /** A capsule with no service, used wherever only migration behavior matters. */

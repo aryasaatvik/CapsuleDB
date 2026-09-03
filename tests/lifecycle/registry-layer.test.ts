@@ -28,9 +28,7 @@ const notes = Capsule.make({
       id: 1,
       name: "create-notes",
       risk: "additive",
-      providers: {
-        Sqlite: Migration.sqlBody([`CREATE TABLE "${NOTES_TABLE}" (body TEXT NOT NULL)`]),
-      },
+      steps: [Migration.sql({ sqlite: [`CREATE TABLE "${NOTES_TABLE}" (body TEXT NOT NULL)`] })],
     }),
   ],
   layer: Layer.effect(
@@ -48,9 +46,9 @@ const audit = Capsule.make({
       id: 1,
       name: "create-audit",
       risk: "additive",
-      providers: {
-        Sqlite: Migration.sqlBody([`CREATE TABLE "${AUDIT_TABLE}" (entries INTEGER NOT NULL)`]),
-      },
+      steps: [
+        Migration.sql({ sqlite: [`CREATE TABLE "${AUDIT_TABLE}" (entries INTEGER NOT NULL)`] }),
+      ],
     }),
   ],
   layer: Layer.effect(
@@ -108,7 +106,7 @@ describe("registry layer", () => {
               id: 1,
               name: "invalid-ddl",
               risk: "additive",
-              providers: { Sqlite: Migration.sqlBody(["THIS IS NOT VALID SQL"]) },
+              steps: [Migration.sql({ sqlite: ["THIS IS NOT VALID SQL"] })],
             }),
           ],
           layer: Layer.succeed(Notes, { write: () => Effect.void }),

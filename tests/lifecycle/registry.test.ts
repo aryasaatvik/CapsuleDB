@@ -27,19 +27,19 @@ describe("registry migration lifecycle", () => {
           id: 1,
           name: "create-before-destructive",
           risk: "additive",
-          providers: {
-            Sqlite: Migration.sqlBody([
-              'CREATE TABLE "lifecycle_before_destructive" (id TEXT PRIMARY KEY NOT NULL)',
-            ]),
-          },
+          steps: [
+            Migration.sql({
+              sqlite: [
+                'CREATE TABLE "lifecycle_before_destructive" (id TEXT PRIMARY KEY NOT NULL)',
+              ],
+            }),
+          ],
         });
         const second = Migration.make({
           id: 2,
           name: "drop-before-destructive",
           risk: "destructive",
-          providers: {
-            Sqlite: Migration.sqlBody(['DROP TABLE "lifecycle_before_destructive"']),
-          },
+          steps: [Migration.sql({ sqlite: ['DROP TABLE "lifecycle_before_destructive"'] })],
         });
         const capsule = Capsule.make({
           id: "lifecycle.destructive",
@@ -177,14 +177,13 @@ describe("registry migration lifecycle", () => {
           id: 1,
           name: "provider-switch-probe",
           risk: "additive",
-          providers: {
-            Sqlite: Migration.sqlBody([
-              'CREATE TABLE "lifecycle_provider_switch_sqlite" (id TEXT PRIMARY KEY NOT NULL)',
-            ]),
-            Libsql: Migration.sqlBody([
-              'CREATE TABLE "lifecycle_provider_switch_libsql" (id TEXT PRIMARY KEY NOT NULL)',
-            ]),
-          },
+          steps: [
+            Migration.sql({
+              sqlite: [
+                'CREATE TABLE "lifecycle_provider_switch_sqlite" (id TEXT PRIMARY KEY NOT NULL)',
+              ],
+            }),
+          ],
         });
         const capsule = Capsule.make({
           id: "lifecycle.provider-switch",
@@ -290,8 +289,8 @@ describe("registry migration lifecycle", () => {
           id: 1,
           name: "interruptible-migration",
           risk: "additive",
-          providers: {
-            Sqlite: Migration.effectBody<SqlError>(
+          steps: [
+            Migration.effect<SqlError>(
               "CREATE TABLE lifecycle_interruptible",
               Effect.gen(function* () {
                 const sql = yield* Effect.service(SqlClient.SqlClient);
@@ -301,7 +300,7 @@ describe("registry migration lifecycle", () => {
                 yield* Effect.sleep("10 seconds");
               }),
             ),
-          },
+          ],
         });
         const capsule = Capsule.make({
           id: "lifecycle.interruptible",

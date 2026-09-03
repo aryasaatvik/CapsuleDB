@@ -20,9 +20,7 @@ const makeStaticManifest = (migrationCount = 1) =>
           id,
           name: `create-artifact-table-${id}`,
           risk: "additive",
-          providers: {
-            D1: Migration.sqlBody([`CREATE TABLE "${tableName}" (id TEXT NOT NULL)`]),
-          },
+          steps: [Migration.sql({ sqlite: [`CREATE TABLE "${tableName}" (id TEXT NOT NULL)`] })],
         }),
       );
     }
@@ -82,7 +80,7 @@ describe("D1 artifact projection", () => {
         id: 1,
         name: "dynamic",
         risk: "additive",
-        providers: { D1: Migration.effectBody("dynamic", Effect.void) },
+        steps: [Migration.effect("dynamic", Effect.void)],
       });
       const capsule = Capsule.make({
         id: "artifact.dynamic",
@@ -100,11 +98,15 @@ describe("D1 artifact projection", () => {
     Effect.gen(function* () {
       const oversizedMigration = Migration.make({
         id: 1,
-        name: "two-statements",
+        name: "over-batch-limit",
         risk: "additive",
-        providers: {
-          D1: Migration.sqlBody(["SELECT 1", "SELECT 2"]),
-        },
+        // One more body statement than the built-in D1 profile leaves room for
+        // once the ledger claim takes the first slot in the atomic batch.
+        steps: [
+          Migration.sql({
+            sqlite: Array.from({ length: 16 }, (_, index) => `SELECT ${index + 1}`),
+          }),
+        ],
       });
       const oversizedCapsule = Capsule.make({
         id: "artifact.oversized",
@@ -119,13 +121,13 @@ describe("D1 artifact projection", () => {
         id: 1,
         name: "same-migration",
         risk: "additive",
-        providers: { D1: Migration.sqlBody(["SELECT 1"]) },
+        steps: [Migration.sql({ sqlite: ["SELECT 1"] })],
       });
       const secondMigration = Migration.make({
         id: 1,
         name: "same-migration",
         risk: "additive",
-        providers: { D1: Migration.sqlBody(["SELECT 2"]) },
+        steps: [Migration.sql({ sqlite: ["SELECT 2"] })],
       });
       const firstCapsule = Capsule.make({
         id: "a.b",

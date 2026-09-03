@@ -86,12 +86,14 @@ describe("reference token capsule over a host-supplied libSQL client", () => {
               id: 1,
               name: "failing-libsql-migration",
               risk: "additive",
-              providers: {
-                Libsql: Migration.sqlBody([
-                  'CREATE TABLE "libsql_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
-                  "THIS IS NOT VALID SQL",
-                ]),
-              },
+              steps: [
+                Migration.sql({
+                  sqlite: [
+                    'CREATE TABLE "libsql_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
+                    "THIS IS NOT VALID SQL",
+                  ],
+                }),
+              ],
             });
             const capsule = Capsule.make({
               id: "libsql.failure",
@@ -163,11 +165,11 @@ describe("reference token capsule over a host-supplied libSQL client", () => {
             id: 1,
             name: "concurrent-libsql-migration",
             risk: "additive",
-            providers: {
-              Libsql: Migration.sqlBody([
-                'CREATE TABLE "libsql_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)',
-              ]),
-            },
+            steps: [
+              Migration.sql({
+                sqlite: ['CREATE TABLE "libsql_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)'],
+              }),
+            ],
           });
           const capsule = Capsule.make({
             id: "libsql.concurrent",

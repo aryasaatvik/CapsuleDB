@@ -11,6 +11,7 @@ import {
   type CapsuleError,
 } from "./Error.ts";
 import {
+  bodyFor,
   decodeManifest,
   type Manifest,
   type ManifestCapsule,
@@ -75,25 +76,26 @@ const d1Body = (
   migration: ManifestMigration,
 ): Effect.Effect<Extract<D1ArtifactFile, { readonly migrationId: number }>, D1ArtifactError> =>
   Effect.gen(function* () {
-    // D1 runs the SQLite dialect, so an exact D1 body wins and the shared
-    // SQLite body is the fallback, exactly as runtime resolution does.
-    const provider =
-      migration.providers.find((candidate) => candidate.dialect === "D1") ??
-      migration.providers.find((candidate) => candidate.dialect === "Sqlite");
-    if (provider === undefined) {
+    // D1 runs the SQLite dialect, so the artifact projects the SQLite body.
+    const body = bodyFor(migration, "sqlite");
+    if (body === undefined) {
       return yield* Effect.fail(
-        new MissingProviderMigration({ migrationId: migration.id, dialect: "D1" }),
+        new MissingProviderMigration({ migrationId: migration.id, dialect: "sqlite" }),
       );
     }
-    if (provider._tag !== "Sql") {
+    const dynamic = body.operations.find((operation) => operation._tag !== "Sql");
+    if (dynamic !== undefined) {
       return yield* Effect.fail(
         new D1ArtifactUnsupportedBody({
           capsuleId: capsule.id,
           migrationId: migration.id,
-          mode: provider._tag,
+          mode: dynamic._tag,
         }),
       );
     }
+    const statements = body.operations.flatMap((operation) =>
+      operation._tag === "Sql" ? [...operation.statements] : [],
+    );
 
     // The artifact is a deployment aid for one static D1 body. Runtime
     // preparation still performs its own claim-first batch and limits check.
@@ -109,18 +111,18 @@ const d1Body = (
     // Runtime preparation prepends one ledger claim to this body. Keep the
     // static projection within that same complete claim-first batch limit.
     const maxBodyStatements = capabilities.maxStatements - 1;
-    if (provider.statements.length > maxBodyStatements) {
+    if (statements.length > maxBodyStatements) {
       return yield* Effect.fail(
         new InvalidDefinition({
           subject: `D1 artifact ${capsule.id}/${migration.id}`,
-          reason: `D1 migration has ${provider.statements.length} body statements; runtime claim-first batches allow at most ${maxBodyStatements}`,
+          reason: `D1 migration has ${statements.length} body statements; runtime claim-first batches allow at most ${maxBodyStatements}`,
         }),
       );
     }
     const maxSqlStatementBytes = capabilities.maxSqlStatementBytes;
     if (
       maxSqlStatementBytes !== undefined &&
-      provider.statements.some(
+      statements.some(
         (statement) => new TextEncoder().encode(statement).byteLength > maxSqlStatementBytes,
       )
     ) {
@@ -139,8 +141,8 @@ const d1Body = (
       migrationId: migration.id,
       name: migration.name,
       checksum: migration.checksum,
-      source: provider.statements.join("\n"),
-      statements: [...provider.statements],
+      source: statements.join("\n"),
+      statements,
     };
   });
 

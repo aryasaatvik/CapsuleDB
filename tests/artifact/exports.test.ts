@@ -56,8 +56,8 @@ const providerProfiles = [
   [Libsql, libsqlProfile, "Libsql"],
 ];
 for (const [rootProvider, subpathProvider, provider] of providerProfiles) {
-  if (rootProvider.profile.provider._tag !== provider || subpathProvider.provider._tag !== provider) {
-    throw new Error("Packed provider profile mismatch for " + dialect);
+  if (rootProvider.profile.provider !== provider || subpathProvider.provider !== provider) {
+    throw new Error("Packed provider profile mismatch for " + provider);
   }
 }
 

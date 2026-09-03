@@ -5,6 +5,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 
 import * as Capsule from "../../src/Capsule.ts";
 import * as Migration from "../../src/Migration.ts";
+import * as Schema from "../../src/Schema.ts";
 import { BunSqliteProfile } from "../../src/Provider.ts";
 import * as Registry from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
@@ -23,7 +24,8 @@ class IsolationProbe extends Context.Service<IsolationProbe, IsolationProbeServi
   static readonly layer: Layer.Layer<IsolationProbe, never, SqlClient.SqlClient> = Layer.effect(
     IsolationProbe,
     Effect.map(Effect.service(SqlClient.SqlClient), (sql) => ({
-      put: (value: number) => sql`INSERT INTO ${sql(ISOLATION_TABLE)} (value) VALUES (${value})`,
+      put: (value: number) =>
+        sql`INSERT INTO ${sql(ISOLATION_TABLE)} (id, value) VALUES (${String(value)}, ${value})`,
       count: () =>
         sql<{ readonly count: number }>`SELECT COUNT(*) AS count
           FROM ${sql(ISOLATION_TABLE)}`.pipe(Effect.map((rows) => rows[0]?.count ?? 0)),
@@ -33,9 +35,10 @@ class IsolationProbe extends Context.Service<IsolationProbe, IsolationProbeServi
 
 const makeEmptyCapsule = (id: string) => Capsule.make({ id, migrations: [], layer: Layer.empty });
 
-const isolationSql = Migration.sqlBody([
-  `CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`,
-]);
+const isolationTable = Schema.table(ISOLATION_TABLE, {
+  columns: { id: Schema.text(), value: Schema.integer() },
+  primaryKey: ["id"],
+});
 
 const isolationCapsule = Capsule.make({
   id: "isolation.probe",
@@ -44,14 +47,14 @@ const isolationCapsule = Capsule.make({
       id: 1,
       name: "create-isolation-probe",
       risk: "additive",
-      providers: { Sqlite: isolationSql, Postgres: isolationSql },
+      steps: [Migration.createTable(isolationTable)],
     }),
   ],
   layer: IsolationProbe.layer,
 });
 
 const tableNames = (provider: (typeof providerCases)[number], client: SqlClient.SqlClient) =>
-  provider.profile.dialect._tag === "Postgres"
+  provider.profile.dialect === "postgres"
     ? client<{ readonly name: string }>`SELECT tablename AS name
         FROM pg_catalog.pg_tables
         WHERE schemaname = 'public'
@@ -97,7 +100,7 @@ describe("CapsuleDB capsule isolation", () => {
             assert.strictEqual(Number(rows[0]?.count), 1);
           }).pipe(Effect.provideService(SqlClient.SqlClient, client)),
         ),
-      provider.profile.dialect._tag === "Postgres" ? 60_000 : 30_000,
+      provider.profile.dialect === "postgres" ? 60_000 : 30_000,
     );
   }
 

@@ -46,12 +46,34 @@ test("a capsule is a value, not an Effect, and keeps its typed layer", () => {
   expect(capsule).type.toHaveProperty("namespace");
 });
 
+test("a declared table infers its own row type", () => {
+  const tokens = CapsuleDB.Schema.table("acme_tokens", {
+    columns: {
+      id: CapsuleDB.Schema.text(),
+      attempts: CapsuleDB.Schema.integer(),
+      consumed_at: CapsuleDB.Schema.timestamp({ nullable: true }),
+    },
+    primaryKey: ["id"],
+  });
+
+  expect<CapsuleDB.Schema.Row<typeof tokens>>().type.toBe<{
+    readonly id: string;
+    readonly attempts: number;
+    readonly consumed_at: Date | null;
+  }>();
+  // A column that is not declared cannot be a primary key or an index column.
+  expect(CapsuleDB.Schema.table).type.not.toBeCallableWith("acme_tokens", {
+    columns: { id: CapsuleDB.Schema.text() },
+    primaryKey: ["missing"],
+  });
+});
+
 test("a migration is a value, not an Effect", () => {
   const migration = CapsuleDB.Migration.make({
     id: 1,
     name: "create-tokens",
     risk: "additive",
-    providers: { Sqlite: CapsuleDB.Migration.sqlBody(["SELECT 1"]) },
+    steps: [CapsuleDB.Migration.sql({ sqlite: ["SELECT 1"], postgres: ["SELECT 1"] })],
   });
   expect(migration).type.toBeAssignableTo<CapsuleDB.Migration.Migration>();
 });
@@ -86,6 +108,9 @@ test("the root exports one namespace per module and no duplicates", () => {
   expect(CapsuleDB).type.not.toHaveProperty("RegistryModule");
   expect(CapsuleDB).type.not.toHaveProperty("makeCapsule");
   expect(CapsuleDB).type.not.toHaveProperty("makeRegistry");
+  expect(CapsuleDB).type.toHaveProperty("Schema");
+  expect(CapsuleDB).type.toHaveProperty("Dialect");
+  expect<CapsuleDB.Dialect.Dialect>().type.toBe<"postgres" | "sqlite">();
   expect(d1Profile).type.toBeAssignableTo<typeof CapsuleDB.D1.profile>();
   expect(postgresProfile).type.toBeAssignableTo<typeof CapsuleDB.Pg.profile>();
   expect(libsqlProfile).type.toBeAssignableTo<typeof CapsuleDB.Libsql.profile>();

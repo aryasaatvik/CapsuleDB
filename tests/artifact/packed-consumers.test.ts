@@ -24,9 +24,7 @@ export const capsule = Capsule.make({
       id: 1,
       name: "create-packed-table",
       risk: "additive",
-      providers: {
-        Sqlite: Migration.sqlBody(['CREATE TABLE "packed_table" (value TEXT NOT NULL)']),
-      },
+      steps: [Migration.sql({ sqlite: ['CREATE TABLE "packed_table" (value TEXT NOT NULL)'] })],
     }),
   ],
   layer: Layer.succeed(ReferenceService, { value: "packed-service" }),
@@ -48,7 +46,7 @@ const service = await Effect.runPromise(
 );
 
 if (VERSION !== "${packageJson.version}") throw new Error("package version mismatch");
-if (D1.profile.provider._tag !== "D1") throw new Error("D1 profile mismatch");
+if (D1.profile.provider !== "D1") throw new Error("D1 profile mismatch");
 if (registryManifest.fingerprint !== manifest.fingerprint) throw new Error("manifest mismatch");
 if (artifact.files.length !== 1) throw new Error("artifact projection mismatch");
 if (service.value !== "packed-service") throw new Error("opaque service mismatch");
@@ -60,7 +58,7 @@ import { profile as d1Profile } from "./capsuledb-d1-bundle.mjs";
 
 export default {
   fetch() {
-    return Response.json({ provider: d1Profile.provider._tag });
+    return Response.json({ provider: d1Profile.provider });
   },
 };
 `;

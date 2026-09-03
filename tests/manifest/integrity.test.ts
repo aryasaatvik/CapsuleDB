@@ -12,7 +12,7 @@ import {
   NamespaceCollision,
 } from "../../src/Error.ts";
 import * as Migration from "../../src/Migration.ts";
-import { BunSqliteProfile } from "../../src/Provider.ts";
+import { PostgresProfile } from "../../src/Provider.ts";
 import { makeFixtureCapsule, makeFixtureMigration } from "../fixtures/migrations.ts";
 
 const manifestErrorTag = (error: { readonly _tag: string }): string => error._tag;
@@ -26,7 +26,7 @@ describe("deterministic manifest integrity", () => {
       const second = yield* buildManifest({ capsules: [capsule] });
       assert.deepStrictEqual(second, first);
       assert.strictEqual(second.fingerprint.length, 64);
-      assert.strictEqual(second.capsules[0]?.migrations[0]?.providers.length, 2);
+      assert.strictEqual(second.capsules[0]?.migrations[0]?.bodies.length, 2);
     }),
   );
 
@@ -81,22 +81,17 @@ describe("deterministic manifest integrity", () => {
         id: 1,
         name: "create-tokens",
         risk: "additive",
-        providers: {
-          Sqlite: Migration.sqlBody(["CREATE TABLE tokens (id TEXT)"]),
-        },
+        steps: [Migration.sql({ sqlite: ["CREATE TABLE tokens (id TEXT)"] })],
       });
       const sqliteOnlyCapsule = makeFixtureCapsule([sqliteOnly]);
       const providerError = yield* validateManifest({
         capsules: [sqliteOnlyCapsule],
         expected,
-        provider: { ...BunSqliteProfile, dialect: { _tag: "Postgres" } },
+        provider: PostgresProfile,
       }).pipe(Effect.flip);
       assert.strictEqual(
         manifestErrorTag(providerError),
-        new MissingProviderMigration({
-          migrationId: 1,
-          dialect: "D1",
-        })._tag,
+        new MissingProviderMigration({ migrationId: 1, dialect: "postgres" })._tag,
       );
     }),
   );
@@ -153,7 +148,7 @@ describe("deterministic manifest integrity", () => {
       const decoded = yield* decodeManifest(encoded);
       assert.deepStrictEqual(decoded, manifest);
       assert.strictEqual(
-        "execute" in (decoded.capsules[0]?.migrations[0]?.providers[0] ?? {}),
+        "execute" in (decoded.capsules[0]?.migrations[0]?.bodies[0]?.operations[0] ?? {}),
         false,
       );
 

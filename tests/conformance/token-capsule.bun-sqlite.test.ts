@@ -110,12 +110,14 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
           id: 1,
           name: "failing-marker",
           risk: "additive",
-          providers: {
-            Sqlite: Migration.sqlBody([
-              'CREATE TABLE "capsule_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
-              "THIS IS NOT VALID SQL",
-            ]),
-          },
+          steps: [
+            Migration.sql({
+              sqlite: [
+                'CREATE TABLE "capsule_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
+                "THIS IS NOT VALID SQL",
+              ],
+            }),
+          ],
         });
         const capsule = Capsule.make({
           id: "failure.probe",

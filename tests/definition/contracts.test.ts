@@ -21,12 +21,23 @@ describe("CapsuleDB definition contracts", () => {
   });
 
   it("throws on an invalid migration definition instead of returning an Effect", () => {
+    const step = Migration.sql({ sqlite: ["SELECT 1"], postgres: ["SELECT 1"] });
     assert.throws(
-      () => Migration.make({ id: 0, name: "zero", risk: "additive", providers: {} }),
+      () => Migration.make({ id: 0, name: "zero-id", risk: "additive", steps: [step] }),
       CapsuleDefinitionError,
     );
     assert.throws(
-      () => Migration.make({ id: 1, name: "no-bodies", risk: "additive", providers: {} }),
+      () => Migration.make({ id: 1, name: "no-steps", risk: "additive", steps: [] }),
+      CapsuleDefinitionError,
+    );
+    assert.throws(
+      () =>
+        Migration.make({
+          id: 1,
+          name: "empty-body",
+          risk: "additive",
+          steps: [Migration.sql({ sqlite: [] })],
+        }),
       CapsuleDefinitionError,
     );
   });
@@ -80,9 +91,7 @@ describe("CapsuleDB definition contracts", () => {
             id: 1,
             name: "create-private-state",
             risk: "additive",
-            providers: {
-              Postgres: Migration.sqlBody(["CREATE TABLE private_state (id TEXT)"]),
-            },
+            steps: [Migration.sql({ postgres: ["CREATE TABLE private_state (id TEXT)"] })],
           }),
         ],
         layer: Layer.empty,
@@ -95,25 +104,48 @@ describe("CapsuleDB definition contracts", () => {
     }),
   );
 
-  it("resolves exact provider overrides before shared SQL dialect defaults", () => {
+  it("resolves one dialect body per migration and coalesces adjacent SQL steps", () => {
     const migration = Migration.make({
       id: 1,
-      name: "provider-override",
+      name: "mixed-steps",
       risk: "additive",
-      providers: {
-        Sqlite: Migration.sqlBody(["SELECT dialect"]),
-        BunSqlite: Migration.sqlBody(["SELECT provider"]),
-      },
+      steps: [
+        Migration.sql({ sqlite: ["SELECT sqlite"], postgres: ["SELECT postgres"] }),
+        Migration.sql({ sqlite: ["SELECT second"], postgres: ["SELECT second"] }),
+      ],
     });
-    const providerImplementation = Migration.resolveMigrationImplementation(
-      migration,
-      BunSqliteProfile,
+
+    assert.deepStrictEqual(Migration.resolve(migration, "sqlite"), [
+      { _tag: "Sql", statements: ["SELECT sqlite", "SELECT second"] },
+    ]);
+    assert.deepStrictEqual(Migration.resolve(migration, "postgres"), [
+      { _tag: "Sql", statements: ["SELECT postgres", "SELECT second"] },
+    ]);
+    assert.deepStrictEqual(Migration.supportedDialects(migration), ["postgres", "sqlite"]);
+  });
+
+  it("reports the dialects a migration supports and refuses one that supports none", () => {
+    const postgresOnly = Migration.make({
+      id: 1,
+      name: "postgres-only",
+      risk: "additive",
+      steps: [Migration.sql({ postgres: ["SELECT 1"] })],
+    });
+    assert.deepStrictEqual(Migration.supportedDialects(postgresOnly), ["postgres"]);
+    assert.strictEqual(Migration.resolve(postgresOnly, "sqlite"), undefined);
+
+    assert.throws(
+      () =>
+        Migration.make({
+          id: 1,
+          name: "no-dialect",
+          risk: "additive",
+          steps: [
+            Migration.sql({ postgres: ["SELECT 1"] }),
+            Migration.sql({ sqlite: ["SELECT 1"] }),
+          ],
+        }),
+      CapsuleDefinitionError,
     );
-    const dialectImplementation = Migration.resolveMigrationImplementation(migration, D1Profile);
-    if (providerImplementation?._tag !== "Sql" || dialectImplementation?._tag !== "Sql") {
-      throw new Error("expected static SQL implementations");
-    }
-    assert.deepStrictEqual(providerImplementation.statements, ["SELECT provider"]);
-    assert.deepStrictEqual(dialectImplementation.statements, ["SELECT dialect"]);
   });
 });

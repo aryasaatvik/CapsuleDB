@@ -3,7 +3,8 @@ import type * as Layer from "effect/Layer";
 import type * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { CapsuleDefinitionError } from "./Error.ts";
-import type { Migration } from "./Migration.ts";
+import { createdTables, type Migration } from "./Migration.ts";
+import type { Table } from "./Schema.ts";
 
 const CAPSULE_ID_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 
@@ -52,6 +53,12 @@ export const deriveNamespace = (id: CapsuleId): CapsuleNamespace =>
 export interface Capsule<Service, Failure = never, Requirements = SqlClient.SqlClient> {
   readonly id: CapsuleId;
   readonly namespace: CapsuleNamespace;
+  /**
+   * The tables this capsule owns. Declared once and rendered per dialect, so a
+   * host tool can list them without parsing SQL. Defaults to every table the
+   * migrations create.
+   */
+  readonly tables: ReadonlyArray<Table>;
   readonly migrations: ReadonlyArray<Migration>;
   readonly layer: Layer.Layer<Service, Failure, Requirements>;
 }
@@ -59,6 +66,7 @@ export interface Capsule<Service, Failure = never, Requirements = SqlClient.SqlC
 /** Inputs accepted at the definition boundary. The identifier is parsed here. */
 export interface Options<Service, Failure = never, Requirements = SqlClient.SqlClient> {
   readonly id: string;
+  readonly tables?: ReadonlyArray<Table>;
   readonly migrations: ReadonlyArray<Migration>;
   readonly layer: Layer.Layer<Service, Failure, Requirements>;
 }
@@ -84,10 +92,14 @@ export const make = <Service, Failure = never, Requirements = SqlClient.SqlClien
     });
   }
 
+  const migrations = Object.freeze([...options.migrations]);
   return Object.freeze({
     id,
     namespace: deriveNamespace(id),
-    migrations: Object.freeze([...options.migrations]),
+    tables: Object.freeze([
+      ...(options.tables ?? migrations.flatMap((migration) => createdTables(migration))),
+    ]),
+    migrations,
     layer: options.layer,
   });
 };

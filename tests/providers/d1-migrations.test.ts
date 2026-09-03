@@ -34,30 +34,34 @@ describe("D1 atomic migration runner", () => {
               id: 1,
               name: "first-valid-migration",
               risk: "additive",
-              providers: {
-                D1: Migration.sqlBody([
-                  'CREATE TABLE "d1_preflight_first" (id TEXT PRIMARY KEY NOT NULL)',
-                ]),
-              },
+              steps: [
+                Migration.sql({
+                  sqlite: ['CREATE TABLE "d1_preflight_first" (id TEXT PRIMARY KEY NOT NULL)'],
+                }),
+              ],
             });
             const second = Migration.make({
               id: 2,
               name: "second-over-limit-migration",
               risk: "additive",
-              providers: {
-                D1: Migration.sqlBody([
-                  'CREATE TABLE "d1_preflight_second_a" (id TEXT PRIMARY KEY NOT NULL)',
-                  'CREATE TABLE "d1_preflight_second_b" (id TEXT PRIMARY KEY NOT NULL)',
-                ]),
-              },
+              steps: [
+                Migration.sql({
+                  sqlite: [
+                    'CREATE TABLE "d1_preflight_second_a" (id TEXT PRIMARY KEY NOT NULL)',
+                    'CREATE TABLE "d1_preflight_second_b" (id TEXT PRIMARY KEY NOT NULL)',
+                  ],
+                }),
+              ],
             });
             const capsule = Capsule.make({
               id: "d1.preflight",
               migrations: [first, second],
               layer: Layer.empty,
             });
+            // A profile bounded at one claim plus one body statement, so the
+            // second migration is over the limit before anything is applied.
             const registry = {
-              provider: d1Profile,
+              provider: limitedD1({ maxStatements: 2 }),
               capsules: [capsule],
             };
             const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
@@ -88,12 +92,14 @@ describe("D1 atomic migration runner", () => {
               id: 1,
               name: "failing-d1-migration",
               risk: "additive",
-              providers: {
-                D1: Migration.sqlBody([
-                  'CREATE TABLE "d1_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
-                  "THIS IS NOT VALID SQL",
-                ]),
-              },
+              steps: [
+                Migration.sql({
+                  sqlite: [
+                    'CREATE TABLE "d1_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
+                    "THIS IS NOT VALID SQL",
+                  ],
+                }),
+              ],
             });
             const capsule = Capsule.make({
               id: "d1.failure",
@@ -132,11 +138,11 @@ describe("D1 atomic migration runner", () => {
               id: 1,
               name: "concurrent-d1-migration",
               risk: "additive",
-              providers: {
-                D1: Migration.sqlBody([
-                  'CREATE TABLE "d1_concurrent_marker" (id TEXT PRIMARY KEY NOT NULL)',
-                ]),
-              },
+              steps: [
+                Migration.sql({
+                  sqlite: ['CREATE TABLE "d1_concurrent_marker" (id TEXT PRIMARY KEY NOT NULL)'],
+                }),
+              ],
             });
             const capsule = Capsule.make({
               id: "d1.concurrent",
@@ -175,11 +181,11 @@ describe("D1 atomic migration runner", () => {
               id: 1,
               name: "d1-name-conflict",
               risk: "additive",
-              providers: {
-                D1: Migration.sqlBody([
-                  'CREATE TABLE "d1_name_conflict" (id TEXT PRIMARY KEY NOT NULL)',
-                ]),
-              },
+              steps: [
+                Migration.sql({
+                  sqlite: ['CREATE TABLE "d1_name_conflict" (id TEXT PRIMARY KEY NOT NULL)'],
+                }),
+              ],
             });
             const capsule = Capsule.make({
               id: "d1.name-conflict",
@@ -273,9 +279,11 @@ describe("D1 atomic migration runner", () => {
               id: 1,
               name: "oversized-d1-migration",
               risk: "additive",
-              providers: {
-                D1: Migration.sqlBody(['CREATE TABLE "d1_oversized_marker" (value TEXT NOT NULL)']),
-              },
+              steps: [
+                Migration.sql({
+                  sqlite: ['CREATE TABLE "d1_oversized_marker" (value TEXT NOT NULL)'],
+                }),
+              ],
             });
             const capsule = Capsule.make({
               id: "d1.oversized",
@@ -306,9 +314,7 @@ describe("D1 atomic migration runner", () => {
           id: 1,
           name: "dynamic-d1-migration",
           risk: "additive",
-          providers: {
-            D1: Migration.effectBody("dynamic-d1-migration", Effect.void),
-          },
+          steps: [Migration.effect("dynamic-d1-migration", Effect.void)],
         });
         const capsule = Capsule.make({
           id: "d1.dynamic",

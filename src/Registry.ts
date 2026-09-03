@@ -17,7 +17,7 @@ import {
   ProviderMismatch,
   RegistryCorrupt,
 } from "./Error.ts";
-import { resolveMigrationImplementation, type Migration, type MigrationBody } from "./Migration.ts";
+import { resolve as resolveMigration, type Migration, type Operation } from "./Migration.ts";
 import { buildManifest, type Manifest, type ManifestError } from "./Manifest.ts";
 import type { PendingMigration, Readiness, Ready } from "./Readiness.ts";
 import {
@@ -107,10 +107,10 @@ interface Registry {
   readonly manifest: Manifest;
 }
 
-const resolveMigrationBody = (
+const resolveOperations = (
   migration: Migration,
   provider: ProviderProfile,
-): MigrationBody | undefined => resolveMigrationImplementation(migration, provider);
+): ReadonlyArray<Operation> | undefined => resolveMigration(migration, provider.dialect);
 
 /**
  * Validate explicit capsule composition before any provider state is touched.
@@ -144,21 +144,19 @@ const resolve = (options: Options): Effect.Effect<Registry, RegistryError> =>
         }
         seenMigrationIds.push(migration.id);
 
-        const implementation = resolveMigrationBody(migration, provider);
-        if (implementation === undefined) {
+        const operations = resolveOperations(migration, provider);
+        if (operations === undefined) {
           return yield* Effect.fail(
             new MissingProviderMigration({
               migrationId: migration.id,
-              dialect: provider.dialect._tag,
+              dialect: provider.dialect,
             }),
           );
         }
-        if (provider.capabilities._tag === "AtomicBatch" && implementation._tag !== "Sql") {
+        const dynamic = operations.find((operation) => operation._tag !== "Sql");
+        if (provider.capabilities._tag === "AtomicBatch" && dynamic !== undefined) {
           return yield* Effect.fail(
-            new ProviderMismatch({
-              dialect: provider.dialect._tag,
-              mode: implementation._tag,
-            }),
+            new ProviderMismatch({ dialect: provider.dialect, mode: dynamic._tag }),
           );
         }
       }
@@ -236,7 +234,7 @@ const runtimeTablesExist = (
 ): Effect.Effect<"none" | "partial" | "complete", SqlError> =>
   Effect.gen(function* () {
     const rows =
-      provider.dialect._tag === "Postgres"
+      provider.dialect === "postgres"
         ? yield* sql`SELECT COUNT(*)::int AS count FROM information_schema.tables
             WHERE table_schema = current_schema()
               AND table_name IN (${LEDGER_TABLE}, ${METADATA_TABLE})`
@@ -396,21 +394,21 @@ const writeMetadata = (
       fingerprint = excluded.fingerprint,
       provider = excluded.provider`;
 
-const migrationBody = (
+const migrationOperations = (
   registry: Registry,
   migration: Migration,
-): Effect.Effect<MigrationBody, MissingProviderMigration> =>
+): Effect.Effect<ReadonlyArray<Operation>, MissingProviderMigration> =>
   Effect.gen(function* () {
-    const body = resolveMigrationBody(migration, registry.provider);
-    if (body === undefined) {
+    const operations = resolveOperations(migration, registry.provider);
+    if (operations === undefined) {
       return yield* Effect.fail(
         new MissingProviderMigration({
           migrationId: migration.id,
-          dialect: registry.provider.dialect._tag,
+          dialect: registry.provider.dialect,
         }),
       );
     }
-    return body;
+    return operations;
   });
 
 const unauthorizedDestructive = (
@@ -449,7 +447,7 @@ const applyTransactional = (
   checksum: string,
 ): Effect.Effect<void, RegistryRuntimeError> =>
   Effect.gen(function* () {
-    const body = yield* migrationBody(registry, migration);
+    const operations = yield* migrationOperations(registry, migration);
     const outcome = yield* runTransactionalMigration({
       sql,
       capsuleId: capsule.id,
@@ -457,7 +455,7 @@ const applyTransactional = (
       name: migration.name,
       checksum,
       provider: providerName(registry.provider.provider),
-      body,
+      operations,
     }).pipe(
       Effect.tap(() =>
         Effect.logDebug("CapsuleDB migration applied").pipe(
@@ -485,7 +483,7 @@ const applyD1 = (
   checksum: string,
 ): Effect.Effect<void, RegistryRuntimeError> =>
   Effect.gen(function* () {
-    const body = yield* migrationBody(registry, migration);
+    const operations = yield* migrationOperations(registry, migration);
     const outcome = yield* runD1Migration({
       sql: sql as D1BatchClient,
       profile: registry.provider,
@@ -494,7 +492,7 @@ const applyD1 = (
       name: migration.name,
       checksum,
       provider: providerName(registry.provider.provider),
-      body,
+      operations,
     }).pipe(
       Effect.match({
         onFailure: (error) => ({ _tag: "Failure" as const, error }),
@@ -586,7 +584,7 @@ const preflightD1Pending = (
           name: migration.name,
           checksum: manifestMigration.checksum,
           provider: providerName(registry.provider.provider),
-          body: yield* migrationBody(registry, migration),
+          operations: yield* migrationOperations(registry, migration),
         });
       }
     }
@@ -777,7 +775,7 @@ const prepareRegistry = (
   registry: Registry,
 ): Effect.Effect<Ready, RegistryRuntimeError> =>
   Effect.gen(function* () {
-    if (registry.provider.dialect._tag === "Postgres") {
+    if (registry.provider.dialect === "postgres") {
       yield* initializePostgres(sql);
     } else {
       yield* ensureRuntimeTables(sql);
@@ -865,7 +863,7 @@ const prepareRegistry = (
       yield* preflightD1Pending(sql, registry, ledgerRows);
     }
 
-    if (registry.provider.dialect._tag === "Postgres") {
+    if (registry.provider.dialect === "postgres") {
       yield* preparePostgres(sql, registry);
     } else if (registry.provider.capabilities._tag === "Transactional") {
       yield* sql.withTransaction(

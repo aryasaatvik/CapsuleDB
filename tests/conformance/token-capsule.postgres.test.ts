@@ -93,12 +93,14 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
             id: 1,
             name: "failing-postgres-migration",
             risk: "additive",
-            providers: {
-              Postgres: Migration.sqlBody([
-                'CREATE TABLE "postgres_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
-                "THIS IS NOT VALID SQL",
-              ]),
-            },
+            steps: [
+              Migration.sql({
+                postgres: [
+                  'CREATE TABLE "postgres_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
+                  "THIS IS NOT VALID SQL",
+                ],
+              }),
+            ],
           });
           const capsule = Capsule.make({
             id: "postgres.failure",
@@ -134,11 +136,13 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
             id: 1,
             name: "concurrent-postgres-migration",
             risk: "additive",
-            providers: {
-              Postgres: Migration.sqlBody([
-                'CREATE TABLE "postgres_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)',
-              ]),
-            },
+            steps: [
+              Migration.sql({
+                postgres: [
+                  'CREATE TABLE "postgres_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)',
+                ],
+              }),
+            ],
           });
           const capsule = Capsule.make({
             id: "postgres.concurrent",

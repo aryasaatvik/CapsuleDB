@@ -10,8 +10,39 @@ private, while exposing explicit preparation and domain-oriented services.
 
 ## Quickstart
 
-A capsule is a module-level constant. The host imports that value, chooses a
-provider profile, and composes one Layer:
+A capsule author declares its tables once and exports a `Capsule` constant:
+
+```ts
+import { Capsule, Migration, Schema } from "capsuledb";
+
+const tokens = Schema.table("acme_tokens", {
+  columns: {
+    id: Schema.text(),
+    owner_id: Schema.text(),
+    consumed_at: Schema.timestamp({ nullable: true }),
+  },
+  primaryKey: ["id"],
+  indexes: [{ columns: ["owner_id"] }],
+});
+
+export const capsule = Capsule.make({
+  id: "acme.tokens",
+  tables: [tokens],
+  migrations: [
+    Migration.make({
+      id: 1,
+      name: "create-tokens",
+      risk: "additive",
+      steps: [Migration.createTable(tokens)],
+    }),
+  ],
+  layer: Tokens.layer,
+});
+```
+
+CapsuleDB renders that declaration for PostgreSQL and SQLite (Bun SQLite,
+libSQL, and D1). The host imports the value, chooses a provider profile, and
+composes one Layer:
 
 ```ts
 import { Pg, Registry } from "capsuledb";
