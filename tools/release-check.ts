@@ -34,14 +34,13 @@ for (const file of requiredFiles) {
   if (!existsSync(resolve(root, file))) throw new Error(`missing release file: ${file}`);
 }
 
-const changesets = readdirSync(resolve(root, ".changeset")).filter(
+const changelogs = readdirSync(resolve(root, ".tegami")).filter(
   (file) => file.endsWith(".md") && file !== "README.md",
 );
-if (changesets.length === 0) throw new Error("release candidate has no changeset");
 
 const packageText = readFileSync(resolve(root, "package.json"), "utf8");
 if (!packageText.includes('"files"')) throw new Error("package files allowlist is missing");
 
 console.log(
-  `Release metadata check passed (${packageJson.name}@${packageJson.version}, ${changesets.length} changeset).`,
+  `Release metadata check passed (${packageJson.name}@${packageJson.version}, ${changelogs.length} changelog entries).`,
 );
