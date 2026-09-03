@@ -3,11 +3,11 @@ import { assert, describe, it, vi } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { makeCapsule } from "../../src/Capsule.ts";
+import * as Capsule from "../../src/Capsule.ts";
 import { buildManifest } from "../../src/Manifest.ts";
-import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
+import * as Migration from "../../src/Migration.ts";
 import { BunSqliteProfile } from "../../src/Provider.ts";
-import { assertRegistryReady, makeRegistry, plan, prepare, status } from "../../src/Registry.ts";
+import * as Registry from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import {
   OneTimeTokens,
@@ -25,23 +25,23 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
   it.effect("prepares privately, consumes once with audit, and reuses readiness", () =>
     withSqlite(
       Effect.gen(function* () {
-        const capsule = yield* referenceTokenCapsule;
-        const registry = yield* makeRegistry({
+        const capsule = referenceTokenCapsule;
+        const registry = {
           provider: BunSqliteProfile,
           capsules: [capsule],
-        });
+        };
         const sql = yield* Effect.service(SqlClient.SqlClient);
 
-        const registryPlan = yield* plan(registry);
+        const registryManifest = yield* Registry.manifest(registry);
         const publishedManifest = yield* buildManifest({ capsules: [capsule] });
-        assert.deepStrictEqual(registryPlan.manifest, publishedManifest);
+        assert.deepStrictEqual(registryManifest, publishedManifest);
 
-        const pending = yield* status(registry);
+        const pending = yield* Registry.status(registry);
         assert.strictEqual(pending._tag, "Pending");
 
-        const firstReceipt = yield* prepare(registry);
+        const firstReceipt = yield* Registry.prepare(registry);
         assert.strictEqual(firstReceipt.provider, "sqlite");
-        assert.strictEqual(firstReceipt.capsuleCount, 1);
+        assert.strictEqual(firstReceipt.capsules, 1);
 
         const tables = yield* sql<{ readonly name: string }>`SELECT name FROM sqlite_master
           WHERE type = 'table' ORDER BY name`;
@@ -71,9 +71,9 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
           FROM "capsule_reference_2e_token_audit"`;
         assert.deepStrictEqual(auditRows, [{ count: 1 }]);
 
-        const ready = yield* status(registry);
+        const ready = yield* Registry.status(registry);
         assert.strictEqual(ready._tag, "Ready");
-        const secondReceipt = yield* prepare(registry);
+        const secondReceipt = yield* Registry.prepare(registry);
         assert.deepStrictEqual(secondReceipt, firstReceipt);
       }),
     ),
@@ -82,12 +82,12 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
   it.effect("does not trust metadata when the migration ledger is incomplete", () =>
     withSqlite(
       Effect.gen(function* () {
-        const capsule = yield* referenceTokenCapsule;
-        const registry = yield* makeRegistry({
+        const capsule = referenceTokenCapsule;
+        const registry = {
           provider: BunSqliteProfile,
           capsules: [capsule],
-        });
-        yield* prepare(registry);
+        };
+        yield* Registry.prepare(registry);
         const sql = yield* Effect.service(SqlClient.SqlClient);
 
         yield* sql.unsafe(
@@ -95,9 +95,9 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
            WHERE capsule_id = 'reference.tokens' AND migration_id = 2`,
         );
 
-        const current = yield* status(registry);
-        assert.strictEqual(current._tag, "Stale");
-        const readinessError = yield* assertRegistryReady(registry).pipe(Effect.flip);
+        const current = yield* Registry.status(registry);
+        assert.strictEqual(current._tag, "Drift");
+        const readinessError = yield* Registry.assert(registry).pipe(Effect.flip);
         assert.strictEqual(readinessError._tag, "NotReady");
       }),
     ),
@@ -106,29 +106,29 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
   it.effect("rolls back a failed migration marker and keeps the host client usable", () =>
     withSqlite(
       Effect.gen(function* () {
-        const migration = yield* makeMigration({
+        const migration = Migration.make({
           id: 1,
           name: "failing-marker",
           risk: "additive",
           providers: {
-            Sqlite: sqlMigrationBody([
+            Sqlite: Migration.sqlBody([
               'CREATE TABLE "capsule_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
               "THIS IS NOT VALID SQL",
             ]),
           },
         });
-        const capsule = yield* makeCapsule({
+        const capsule = Capsule.make({
           id: "failure.probe",
           migrations: [migration],
           layer: Layer.empty,
         });
-        const registry = yield* makeRegistry({
+        const registry = {
           provider: BunSqliteProfile,
           capsules: [capsule],
-        });
+        };
         const sql = yield* Effect.service(SqlClient.SqlClient);
 
-        const failure = yield* prepare(registry).pipe(Effect.flip);
+        const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
         assert.strictEqual(failure._tag, "SqlError");
 
         const ledgerRows = yield* sql<{ readonly migration_id: number }>`SELECT migration_id
@@ -147,12 +147,12 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
   it.effect("rolls back consumption when the audit write fails", () =>
     withSqlite(
       Effect.gen(function* () {
-        const capsule = yield* referenceTokenCapsule;
-        const registry = yield* makeRegistry({
+        const capsule = referenceTokenCapsule;
+        const registry = {
           provider: BunSqliteProfile,
           capsules: [capsule],
-        });
-        yield* prepare(registry);
+        };
+        yield* Registry.prepare(registry);
         const sql = yield* Effect.service(SqlClient.SqlClient);
         const service = yield* Effect.service(OneTimeTokens);
         const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
@@ -173,12 +173,12 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
   it.effect("checks expiry against the database clock in the atomic consumption update", () =>
     withSqlite(
       Effect.gen(function* () {
-        const capsule = yield* referenceTokenCapsule;
-        const registry = yield* makeRegistry({
+        const capsule = referenceTokenCapsule;
+        const registry = {
           provider: BunSqliteProfile,
           capsules: [capsule],
-        });
-        yield* prepare(registry);
+        };
+        yield* Registry.prepare(registry);
         const sql = yield* Effect.service(SqlClient.SqlClient);
         const service = yield* Effect.service(OneTimeTokens);
 
@@ -207,12 +207,12 @@ describe("reference token capsule over host-supplied Bun SQLite", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const sql = yield* Effect.service(SqlClient.SqlClient);
-        const capsule = yield* referenceTokenCapsule;
-        const registry = yield* makeRegistry({
+        const capsule = referenceTokenCapsule;
+        const registry = {
           provider: BunSqliteProfile,
           capsules: [capsule],
-        });
-        yield* prepare(registry);
+        };
+        yield* Registry.prepare(registry);
         yield* Effect.scoped(
           Effect.gen(function* () {
             const service = yield* Effect.service(OneTimeTokens);

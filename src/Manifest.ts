@@ -13,7 +13,6 @@ import {
   MissingProviderMigration,
   NamespaceCollision,
   ProviderMismatch,
-  type CapsuleError,
 } from "./Error.ts";
 import {
   resolveMigrationImplementation,
@@ -100,7 +99,6 @@ export interface ManifestValidationOptions extends ManifestBuildOptions {
 }
 
 export type ManifestError =
-  | CapsuleError
   | InvalidDefinition
   | DuplicateCapsule
   | NamespaceCollision
@@ -109,6 +107,7 @@ export type ManifestError =
   | MigrationHistoryReordered
   | MigrationNameDrift
   | MigrationChecksumDrift
+  | ManifestFingerprintDrift
   | MissingProviderMigration
   | ProviderMismatch;
 

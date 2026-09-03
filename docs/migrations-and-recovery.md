@@ -10,7 +10,7 @@ fingerprint and provider.
 1. Add the next contiguous migration ID in the capsule module.
 2. Keep the name lowercase and stable; classify the risk as `additive` or
    `destructive`.
-3. Add the provider body required by each supported host. Use `sqlMigrationBody`
+3. Add the provider body required by each supported host. Use `Migration.sqlBody`
    for deterministic static SQL; use an Effect body only for transactional
    providers that support it.
 4. Check the manifest and, for D1, regenerate and check optional artifacts.
@@ -40,7 +40,7 @@ state is touched.
 | ---------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `Pending`                          | No complete active history is recorded yet.                               | Run `prepare` in the startup phase.                                                 |
 | `Ready`                            | Fingerprint, provider, and every active ledger row agree.                 | Expose the service layer.                                                           |
-| `Stale` / `NotReady`               | Metadata or ledger does not match the current registry.                   | Keep the host unavailable; inspect the history and rerun `prepare`.                 |
+| `Drift` / `NotReady`               | Metadata or ledger does not match the current registry.                   | Keep the host unavailable; inspect the history and rerun `prepare`.                 |
 | `DestructiveMigrationUnauthorized` | A pending destructive migration was found without explicit authorization. | Obtain deployment approval, then pass `allowDestructive: true`.                     |
 | `DatabaseAhead`                    | The active database has a migration absent from registered code.          | Restore the exact code or investigate before changing the registry.                 |
 | `LedgerConflict` / checksum drift  | Applied name or body differs from the registered history.                 | Do not edit the applied entry; restore matching statements or plan a new migration. |

@@ -11,37 +11,37 @@ Use the public constructors from `capsuledb` at the authoring boundary. IDs are
 lowercase and stable. CapsuleDB derives the physical namespace from the ID;
 authors do not accept a host-supplied table prefix or rename.
 
+`Capsule.make` and `Migration.make` are pure: they return the value and throw
+`CapsuleDefinitionError` on an invalid definition, so a capsule is an ordinary
+module constant that a host can import without running an Effect first.
+
 ```ts
 import { Context, Effect, Layer } from "effect";
 
-import { makeCapsule, makeMigration, sqlMigrationBody } from "capsuledb";
+import { Capsule, Migration } from "capsuledb";
 
-class Greeting extends Context.Tag("example/Greeting")<
+class Greeting extends Context.Service<
   Greeting,
   { readonly greet: (name: string) => Effect.Effect<string> }
->() {}
+>()("example/Greeting") {}
 
 const serviceLayer = Layer.succeed(Greeting, {
   greet: (name) => Effect.succeed(`hello ${name}`),
 });
 
-export const capsule = Effect.gen(function* () {
-  const createGreeting = yield* makeMigration({
-    id: 1,
-    name: "create-greeting",
-    risk: "additive",
-    providers: {
-      Postgres: sqlMigrationBody('CREATE TABLE "greeting" (name TEXT NOT NULL)', [
-        'CREATE TABLE "greeting" (name TEXT NOT NULL)',
-      ]),
-    },
-  });
-
-  return yield* makeCapsule({
-    id: "example.greeting",
-    migrations: [createGreeting],
-    layer: serviceLayer,
-  });
+export const capsule = Capsule.make({
+  id: "example.greeting",
+  migrations: [
+    Migration.make({
+      id: 1,
+      name: "create-greeting",
+      risk: "additive",
+      providers: {
+        Postgres: Migration.sqlBody(['CREATE TABLE "greeting" (name TEXT NOT NULL)']),
+      },
+    }),
+  ],
+  layer: serviceLayer,
 });
 ```
 
@@ -104,7 +104,7 @@ For D1, `d1 artifact` projects only already-static D1 bodies into a manifest-
 bound index and deterministic SQL files. `d1 check` rejects stale, edited,
 missing, reordered, or unsupported projections. These files are optional
 deployment aids; they do not execute migrations and do not replace the
-host's canonical `Registry.prepare` call.
+host's canonical `Registry.layer` call.
 
 ## What the author does not own
 

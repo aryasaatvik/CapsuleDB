@@ -1,7 +1,8 @@
-import { Effect, Schema } from "effect";
+import type * as Effect from "effect/Effect";
+import { Schema } from "effect";
 import type * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { InvalidDefinition } from "./Error.ts";
+import { CapsuleDefinitionError } from "./Error.ts";
 import type { Dialect, Provider } from "./Provider.ts";
 import type { ProviderProfile } from "./Provider.ts";
 
@@ -62,22 +63,6 @@ export interface EffectMigrationBody<Failure = unknown> {
 
 export type MigrationBody<Failure = unknown> = SqlMigrationBody | EffectMigrationBody<Failure>;
 
-/**
- * Schema-visible migration mode metadata. Function bodies remain runtime
- * values and are never serialized into a manifest.
- */
-export const MigrationMode = Schema.TaggedUnion({
-  Sql: {
-    statements: Schema.Array(Schema.String),
-  },
-  Effect: {
-    revision: MigrationRevision,
-    execute: Schema.Unknown,
-  },
-});
-
-export type MigrationMode = typeof MigrationMode.Type;
-
 export type MigrationProviderKey = Provider["_tag"] | Dialect["_tag"];
 
 /** Provider-specific implementations for one logical migration. */
@@ -101,70 +86,71 @@ export interface Migration<Failure = unknown> {
   readonly providers: MigrationImplementations<Failure>;
 }
 
-export interface MigrationOptions<Failure = unknown> {
-  readonly id: unknown;
-  readonly name: unknown;
-  readonly risk: unknown;
+export interface Options<Failure = unknown> {
+  readonly id: number;
+  readonly name: string;
+  readonly risk: MigrationRisk;
   readonly providers: MigrationImplementations<Failure>;
 }
 
-export type MigrationDefinitionError = InvalidDefinition;
+const decodeOrThrow = <A>(
+  schema: Schema.ConstraintDecoder<A, never>,
+  input: unknown,
+  subject: string,
+): A => {
+  try {
+    return Schema.decodeUnknownSync(schema)(input);
+  } catch (cause) {
+    throw new CapsuleDefinitionError({ subject, reason: String(cause) });
+  }
+};
 
-/** Construct a validated logical migration at an authoring boundary. */
-export const makeMigration = <Failure = unknown>(
-  options: MigrationOptions<Failure>,
-): Effect.Effect<Migration<Failure>, MigrationDefinitionError> =>
-  Effect.gen(function* () {
-    const decode = <A>(
-      schema: Schema.ConstraintDecoder<A, never>,
-      input: unknown,
-      subject: string,
-    ) =>
-      Effect.try({
-        try: () => Schema.decodeUnknownSync(schema)(input),
-        catch: (cause) => new InvalidDefinition({ subject, reason: String(cause) }),
-      });
+/**
+ * Construct a validated logical migration at an authoring boundary.
+ *
+ * Like {@link Capsule.make} this constructor is pure with `makeUnsafe`
+ * semantics: it returns the migration and throws {@link CapsuleDefinitionError}
+ * on an invalid definition, so a migration list is a module-level constant.
+ */
+export const make = <Failure = unknown>(options: Options<Failure>): Migration<Failure> => {
+  const id = decodeOrThrow(MigrationId, options.id, `migration ${String(options.id)} id`);
+  const name = decodeOrThrow(MigrationName, options.name, `migration ${String(options.id)} name`);
+  const risk = decodeOrThrow(MigrationRisk, options.risk, `migration ${String(options.id)} risk`);
 
-    const id = yield* decode(MigrationId, options.id, "migration id");
-    const name = yield* decode(MigrationName, options.name, "migration name");
-    const risk = yield* decode(MigrationRisk, options.risk, "migration risk");
-
-    if (Object.keys(options.providers).length === 0) {
-      return yield* Effect.fail(
-        new InvalidDefinition({
-          subject: `migration ${String(options.id)}`,
-          reason: "at least one provider implementation is required",
-        }),
+  const providers = Object.entries(options.providers);
+  if (providers.length === 0) {
+    throw new CapsuleDefinitionError({
+      subject: `migration ${String(options.id)}`,
+      reason: "at least one provider implementation is required",
+    });
+  }
+  for (const [provider, body] of providers) {
+    if (body._tag === "Effect") {
+      decodeOrThrow(
+        MigrationRevision,
+        body.revision,
+        `migration ${String(options.id)} ${provider} revision`,
       );
     }
+  }
 
-    for (const [provider, body] of Object.entries(options.providers)) {
-      if (body._tag === "Effect") {
-        yield* decode(
-          MigrationRevision,
-          body.revision,
-          `migration ${String(options.id)} ${provider} revision`,
-        );
-      }
-    }
-
-    return Object.freeze({
-      id,
-      name,
-      risk,
-      providers: Object.freeze({ ...options.providers }),
-    });
+  return Object.freeze({
+    id,
+    name,
+    risk,
+    providers: Object.freeze({ ...options.providers }),
   });
+};
 
 /** Construct a static SQL body without introducing a query-builder API. */
-export const sqlMigrationBody = (statements: ReadonlyArray<string>): SqlMigrationBody =>
+export const sqlBody = (statements: ReadonlyArray<string>): SqlMigrationBody =>
   Object.freeze({
     _tag: "Sql" as const,
     statements: Object.freeze([...statements]),
   });
 
 /** Construct an Effect body while retaining its typed error and environment. */
-export const effectMigrationBody = <Failure>(
+export const effectBody = <Failure>(
   revision: string,
   execute: Effect.Effect<void, Failure, SqlClient.SqlClient>,
 ): EffectMigrationBody<Failure> =>

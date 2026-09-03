@@ -10,27 +10,20 @@ private, while exposing explicit preparation and domain-oriented services.
 
 ## Quickstart
 
-Capsule authors export a `Capsule` value. The host imports that value, chooses a
-provider profile, and supplies its already-owned `SqlClient` to preparation:
+A capsule is a module-level constant. The host imports that value, chooses a
+provider profile, and composes one Layer:
 
 ```ts
-import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-
-import { Pg, makeRegistry, prepare } from "capsuledb";
+import { Pg, Registry } from "capsuledb";
 import { capsule } from "./capsule.js";
 
-const boot = Effect.gen(function* () {
-  const registry = yield* makeRegistry({ provider: Pg.profile, capsules: [capsule] });
-  const receipt = yield* prepare(registry);
-  return receipt;
-}).pipe(Effect.provideService(SqlClient.SqlClient, hostOwnedSqlClient));
+export const CapsulesLive = Registry.layer({ provider: Pg.profile, capsules: [capsule] });
 ```
 
-`prepare` creates or checks CapsuleDB's ledger and metadata, applies pending
-migrations, and returns a readiness receipt. It does not open or close the
-host client. Domain services are provided by the capsule's Effect `Layer` after
-preparation. See the [capsule-author guide](docs/capsule-authors.md),
+`Registry.layer` creates or checks CapsuleDB's ledger and metadata, applies
+pending migrations, and then provides every registered capsule's service. It
+does not open or close the host client: the layer still requires the host's
+`SqlClient`. See the [capsule-author guide](docs/capsule-authors.md),
 [host guide](docs/host-applications.md), and [migration runbook](docs/migrations-and-recovery.md)
 for the complete contract.
 

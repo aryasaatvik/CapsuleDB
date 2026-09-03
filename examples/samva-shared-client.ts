@@ -7,7 +7,7 @@ import type { EffectPgDatabase } from "drizzle-orm/effect-postgres";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { Pg, makeRegistry, prepare, type AnyCapsule, type ReadinessReceipt } from "capsuledb";
+import { Capsule, Pg, Readiness, Registry } from "capsuledb";
 
 /** The shared database object a host's Effect Drizzle layer exposes. */
 export interface SharedSamvaStorage {
@@ -21,10 +21,9 @@ export interface SharedSamvaStorage {
  * stores. CapsuleDB never creates a second pool or takes ownership of it.
  */
 export const prepareSamvaCapsule = (
-  capsule: AnyCapsule,
+  capsule: Capsule.Capsule<unknown, never, SqlClient.SqlClient>,
   storage: SharedSamvaStorage,
-): Effect.Effect<ReadinessReceipt, unknown> =>
-  Effect.gen(function* () {
-    const registry = yield* makeRegistry({ provider: Pg.profile, capsules: [capsule] });
-    return yield* prepare(registry).pipe(Effect.provideService(SqlClient.SqlClient, storage.sql));
-  });
+): Effect.Effect<Readiness.Ready, Registry.RegistryRuntimeError> =>
+  Registry.prepare({ provider: Pg.profile, capsules: [capsule] }).pipe(
+    Effect.provideService(SqlClient.SqlClient, storage.sql),
+  );

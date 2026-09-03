@@ -74,10 +74,9 @@ const loadCapsules = (
       if (!(exportName in moduleNamespace)) {
         throw new Error(`module has no export named ${JSON.stringify(exportName)}`);
       }
-      let value = moduleNamespace[exportName];
-      if (Effect.isEffect(value)) {
-        value = await Effect.runPromise(value as Effect.Effect<unknown, unknown, never>);
-      }
+      // Capsules are plain values, so the CLI never runs authored code beyond
+      // the module's own evaluation.
+      const value = moduleNamespace[exportName];
       const values = Array.isArray(value) ? value : [value];
       if (values.length === 0 || values.some((candidate) => !isCapsule(candidate))) {
         throw new Error(

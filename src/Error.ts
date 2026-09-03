@@ -1,16 +1,17 @@
 import { Schema } from "effect";
 
-/** A capsule identifier did not satisfy the package's canonical format. */
-export class InvalidCapsuleId extends Schema.TaggedError<InvalidCapsuleId>()("InvalidCapsuleId", {
-  value: Schema.String,
-  reason: Schema.String,
-}) {}
-
-/** A derived or explicitly supplied physical namespace is invalid. */
-export class InvalidNamespace extends Schema.TaggedError<InvalidNamespace>()("InvalidNamespace", {
-  value: Schema.String,
-  reason: Schema.String,
-}) {}
+/**
+ * A capsule, migration, or table definition is invalid.
+ *
+ * The definition constructors are pure and validate eagerly, so they throw this
+ * error instead of returning it. A definition is authored code, not input: a
+ * bad one is a defect the author fixes, and making every capsule a module
+ * constant is worth more than routing it through an Effect error channel.
+ */
+export class CapsuleDefinitionError extends Schema.TaggedError<CapsuleDefinitionError>()(
+  "CapsuleDefinitionError",
+  { subject: Schema.String, reason: Schema.String },
+) {}
 
 /** Two capsule definitions used the same logical identifier. */
 export class DuplicateCapsule extends Schema.TaggedError<DuplicateCapsule>()("DuplicateCapsule", {
@@ -165,6 +166,7 @@ export class PreparationFailed extends Schema.TaggedError<PreparationFailed>()(
 export class NotReady extends Schema.TaggedError<NotReady>()("NotReady", {
   expectedFingerprint: Schema.String,
   actualFingerprint: Schema.String,
+  reason: Schema.String,
 }) {}
 
 /** A migration ledger claim conflicted with an incompatible checksum. */
@@ -199,8 +201,7 @@ export class InvalidToken extends Schema.TaggedError<InvalidToken>()("InvalidTok
 
 /** All predictable failures emitted by CapsuleDB's public runtime seams. */
 export type CapsuleError =
-  | InvalidCapsuleId
-  | InvalidNamespace
+  | CapsuleDefinitionError
   | DuplicateCapsule
   | NamespaceCollision
   | DuplicateMigrationId

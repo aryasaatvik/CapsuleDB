@@ -3,10 +3,10 @@ import { Context, Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
-import { makeCapsule } from "../../src/Capsule.ts";
-import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
+import * as Capsule from "../../src/Capsule.ts";
+import * as Migration from "../../src/Migration.ts";
 import { BunSqliteProfile } from "../../src/Provider.ts";
-import { makeRegistry, prepare, status } from "../../src/Registry.ts";
+import * as Registry from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import { providerCases } from "../providers/cases.ts";
 
@@ -31,25 +31,23 @@ class IsolationProbe extends Context.Service<IsolationProbe, IsolationProbeServi
   );
 }
 
-const makeEmptyCapsule = (id: string) => makeCapsule({ id, migrations: [], layer: Layer.empty });
+const makeEmptyCapsule = (id: string) => Capsule.make({ id, migrations: [], layer: Layer.empty });
 
-const isolationCapsule = Effect.gen(function* () {
-  const migration = yield* makeMigration({
-    id: 1,
-    name: "create-isolation-probe",
-    risk: "additive",
-    providers: {
-      Sqlite: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
-      Libsql: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
-      Postgres: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
-      D1: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
-    },
-  });
-  return yield* makeCapsule({
-    id: "isolation.probe",
-    migrations: [migration],
-    layer: IsolationProbe.layer,
-  });
+const isolationSql = Migration.sqlBody([
+  `CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`,
+]);
+
+const isolationCapsule = Capsule.make({
+  id: "isolation.probe",
+  migrations: [
+    Migration.make({
+      id: 1,
+      name: "create-isolation-probe",
+      risk: "additive",
+      providers: { Sqlite: isolationSql, Postgres: isolationSql },
+    }),
+  ],
+  layer: IsolationProbe.layer,
 });
 
 const tableNames = (provider: (typeof providerCases)[number], client: SqlClient.SqlClient) =>
@@ -71,14 +69,14 @@ describe("CapsuleDB capsule isolation", () => {
       () =>
         provider.withClient((client) =>
           Effect.gen(function* () {
-            const first = yield* referenceTokenCapsule;
-            const second = yield* isolationCapsule;
-            const registry = yield* makeRegistry({
+            const first = referenceTokenCapsule;
+            const second = isolationCapsule;
+            const registry = {
               provider: provider.profile,
               capsules: [first, second],
-            });
-            yield* prepare(registry);
-            assert.strictEqual((yield* status(registry))._tag, "Ready");
+            };
+            yield* Registry.prepare(registry);
+            assert.strictEqual((yield* Registry.status(registry))._tag, "Ready");
             assert.deepStrictEqual(yield* tableNames(provider, client), [
               { name: "capsule_isolation_probe" },
               { name: "capsule_reference_2e_tokens" },
@@ -105,16 +103,16 @@ describe("CapsuleDB capsule isolation", () => {
 
   it.effect("rejects duplicate IDs and derived namespace collisions", () =>
     Effect.gen(function* () {
-      const first = yield* makeEmptyCapsule("collision.first");
-      const second = yield* makeEmptyCapsule("collision.second");
+      const first = makeEmptyCapsule("collision.first");
+      const second = makeEmptyCapsule("collision.second");
 
-      const duplicate = yield* makeRegistry({
+      const duplicate = yield* Registry.manifest({
         provider: BunSqliteProfile,
         capsules: [first, first],
       }).pipe(Effect.flip);
       assert.strictEqual(duplicate._tag, "DuplicateCapsule");
 
-      const collision = yield* makeRegistry({
+      const collision = yield* Registry.manifest({
         provider: BunSqliteProfile,
         capsules: [first, Object.freeze({ ...second, namespace: first.namespace })],
       }).pipe(Effect.flip);

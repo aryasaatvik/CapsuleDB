@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm";
 import * as PgDrizzle from "drizzle-orm/effect-postgres";
 
 import { profile as postgresProfile } from "../../src/Pg.ts";
-import { makeRegistry, prepare } from "../../src/Registry.ts";
+import * as Registry from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import {
   OneTimeTokens,
@@ -21,12 +21,12 @@ describe("PostgreSQL Effect Drizzle composition", () => {
         Effect.gen(function* () {
           yield* Effect.scoped(
             Effect.gen(function* () {
-              const capsule = yield* referenceTokenCapsule;
-              const registry = yield* makeRegistry({
+              const capsule = referenceTokenCapsule;
+              const registry = {
                 provider: postgresProfile,
                 capsules: [capsule],
-              });
-              yield* prepare(registry);
+              };
+              yield* Registry.prepare(registry);
 
               const db = yield* PgDrizzle.makeWithDefaults().pipe(
                 Effect.provideService(PgClient.PgClient, client),

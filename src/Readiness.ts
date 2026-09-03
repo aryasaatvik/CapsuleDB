@@ -1,52 +1,43 @@
-import { Effect, Schema } from "effect";
+import { Schema } from "effect";
 
-import { NotReady } from "./Error.ts";
+/** One migration the registry has not yet observed in the host's ledger. */
+export const PendingMigration = Schema.Struct({
+  capsule: Schema.String,
+  migration: Schema.Int,
+  name: Schema.String,
+});
 
-/** Readiness state exposed by registry preparation and cheap fast paths. */
+export type PendingMigration = typeof PendingMigration.Type;
+
+/**
+ * The single readiness model for a registry against one host database.
+ *
+ * `prepare`, `status`, and the readiness assertion all answer with this union;
+ * there is no separate plan state or receipt type.
+ */
 export const Readiness = Schema.TaggedUnion({
-  Pending: {
-    fingerprint: Schema.String,
-  },
+  /** Every registered migration is applied and the fingerprint agrees. */
   Ready: {
     fingerprint: Schema.String,
     provider: Schema.String,
+    capsules: Schema.Int,
   },
-  Stale: {
-    expectedFingerprint: Schema.String,
-    actualFingerprint: Schema.String,
+  /** The registry is behind the code; these migrations still have to run. */
+  Pending: {
+    fingerprint: Schema.String,
+    pending: Schema.Array(PendingMigration),
+  },
+  /**
+   * The database disagrees with the code in a way preparation cannot repair:
+   * a checksum conflict, a provider switch, a newer database, or corruption.
+   */
+  Drift: {
+    fingerprint: Schema.String,
+    reason: Schema.String,
   },
 });
 
 export type Readiness = typeof Readiness.Type;
 
-/** A successful preparation receipt suitable for a host readiness cache. */
-export const ReadinessReceipt = Schema.Struct({
-  _tag: Schema.Literal("Ready"),
-  fingerprint: Schema.String,
-  provider: Schema.String,
-  capsuleCount: Schema.Int,
-});
-
-export type ReadinessReceipt = typeof ReadinessReceipt.Type;
-
-/** Build a stable receipt without exposing provider rows or client state. */
-export const makeReadinessReceipt = (
-  fingerprint: string,
-  provider: string,
-  capsuleCount: number,
-): ReadinessReceipt =>
-  Schema.decodeUnknownSync(ReadinessReceipt)({
-    _tag: "Ready",
-    fingerprint,
-    provider,
-    capsuleCount,
-  });
-
-/** Assert that a persisted fingerprint matches the current registry. */
-export const assertReady = (
-  expectedFingerprint: string,
-  actualFingerprint: string,
-): Effect.Effect<true, NotReady> =>
-  expectedFingerprint === actualFingerprint
-    ? Effect.succeed(true)
-    : Effect.fail(new NotReady({ expectedFingerprint, actualFingerprint }));
+/** The successful readiness state a prepared registry reports. */
+export type Ready = Extract<Readiness, { readonly _tag: "Ready" }>;

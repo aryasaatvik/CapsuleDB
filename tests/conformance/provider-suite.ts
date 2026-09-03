@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { providerName } from "../../src/Provider.ts";
-import { makeRegistry, plan, prepare, status } from "../../src/Registry.ts";
+import * as Registry from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import {
   OneTimeTokens,
@@ -21,21 +21,21 @@ export const runProviderSuite = (
   client: SqlClient.SqlClient,
 ): Effect.Effect<void, unknown> =>
   Effect.gen(function* () {
-    const capsule = yield* referenceTokenCapsule;
-    const registry = yield* makeRegistry({
+    const capsule = referenceTokenCapsule;
+    const registry = {
       provider: provider.profile,
       capsules: [capsule],
-    });
-    const registryPlan = yield* plan(registry);
-    const pending = yield* status(registry);
+    };
+    const registryManifest = yield* Registry.manifest(registry);
+    const pending = yield* Registry.status(registry);
     assert.strictEqual(pending._tag, "Pending");
 
-    const firstReceipt = yield* prepare(registry);
+    const firstReceipt = yield* Registry.prepare(registry);
     assert.strictEqual(firstReceipt.provider, providerName(provider.profile.provider));
-    assert.strictEqual(firstReceipt.fingerprint, registryPlan.manifest.fingerprint);
-    assert.strictEqual((yield* status(registry))._tag, "Ready");
+    assert.strictEqual(firstReceipt.fingerprint, registryManifest.fingerprint);
+    assert.strictEqual((yield* Registry.status(registry))._tag, "Ready");
 
-    const secondReceipt = yield* prepare(registry);
+    const secondReceipt = yield* Registry.prepare(registry);
     assert.deepStrictEqual(secondReceipt, firstReceipt);
 
     yield* Effect.scoped(

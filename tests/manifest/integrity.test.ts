@@ -11,7 +11,7 @@ import {
   MissingProviderMigration,
   NamespaceCollision,
 } from "../../src/Error.ts";
-import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
+import * as Migration from "../../src/Migration.ts";
 import { BunSqliteProfile } from "../../src/Provider.ts";
 import { makeFixtureCapsule, makeFixtureMigration } from "../fixtures/migrations.ts";
 
@@ -20,36 +20,32 @@ const manifestErrorTag = (error: { readonly _tag: string }): string => error._ta
 describe("deterministic manifest integrity", () => {
   it.effect("reproduces one byte-identical manifest from identical sources", () =>
     Effect.gen(function* () {
-      const migration = yield* makeFixtureMigration(
-        1,
-        "create-tokens",
-        "CREATE TABLE tokens (id TEXT)",
-      );
-      const capsule = yield* makeFixtureCapsule([migration]);
+      const migration = makeFixtureMigration(1, "create-tokens", "CREATE TABLE tokens (id TEXT)");
+      const capsule = makeFixtureCapsule([migration]);
       const first = yield* buildManifest({ capsules: [capsule] });
       const second = yield* buildManifest({ capsules: [capsule] });
       assert.deepStrictEqual(second, first);
       assert.strictEqual(second.fingerprint.length, 64);
-      assert.strictEqual(second.capsules[0]?.migrations[0]?.providers.length, 4);
+      assert.strictEqual(second.capsules[0]?.migrations[0]?.providers.length, 2);
     }),
   );
 
   it.effect("fails source, name, and provider drift before mutation", () =>
     Effect.gen(function* () {
-      const originalMigration = yield* makeFixtureMigration(
+      const originalMigration = makeFixtureMigration(
         1,
         "create-tokens",
         "CREATE TABLE tokens (id TEXT)",
       );
-      const original = yield* makeFixtureCapsule([originalMigration]);
+      const original = makeFixtureCapsule([originalMigration]);
       const expected = yield* buildManifest({ capsules: [original] });
 
-      const editedMigration = yield* makeFixtureMigration(
+      const editedMigration = makeFixtureMigration(
         1,
         "create-tokens",
         "CREATE TABLE tokens (id TEXT, value TEXT)",
       );
-      const edited = yield* makeFixtureCapsule([editedMigration]);
+      const edited = makeFixtureCapsule([editedMigration]);
       const checksumError = yield* validateManifest({
         capsules: [edited],
         expected,
@@ -63,12 +59,12 @@ describe("deterministic manifest integrity", () => {
         })._tag,
       );
 
-      const renamedMigration = yield* makeFixtureMigration(
+      const renamedMigration = makeFixtureMigration(
         1,
         "create-private-tokens",
         "CREATE TABLE tokens (id TEXT)",
       );
-      const renamed = yield* makeFixtureCapsule([renamedMigration]);
+      const renamed = makeFixtureCapsule([renamedMigration]);
       const nameError = yield* validateManifest({ capsules: [renamed], expected }).pipe(
         Effect.flip,
       );
@@ -81,15 +77,15 @@ describe("deterministic manifest integrity", () => {
         })._tag,
       );
 
-      const sqliteOnly = yield* makeMigration({
+      const sqliteOnly = Migration.make({
         id: 1,
         name: "create-tokens",
         risk: "additive",
         providers: {
-          Sqlite: sqlMigrationBody(["CREATE TABLE tokens (id TEXT)"]),
+          Sqlite: Migration.sqlBody(["CREATE TABLE tokens (id TEXT)"]),
         },
       });
-      const sqliteOnlyCapsule = yield* makeFixtureCapsule([sqliteOnly]);
+      const sqliteOnlyCapsule = makeFixtureCapsule([sqliteOnly]);
       const providerError = yield* validateManifest({
         capsules: [sqliteOnlyCapsule],
         expected,
@@ -107,28 +103,24 @@ describe("deterministic manifest integrity", () => {
 
   it.effect("rejects duplicate IDs, gaps, and reordered histories", () =>
     Effect.gen(function* () {
-      const first = yield* makeFixtureMigration(1, "first", "CREATE TABLE first (id TEXT)");
-      const duplicate = yield* makeFixtureMigration(
-        1,
-        "duplicate",
-        "CREATE TABLE duplicate (id TEXT)",
-      );
-      const duplicateCapsule = yield* makeFixtureCapsule([first, duplicate]);
+      const first = makeFixtureMigration(1, "first", "CREATE TABLE first (id TEXT)");
+      const duplicate = makeFixtureMigration(1, "duplicate", "CREATE TABLE duplicate (id TEXT)");
+      const duplicateCapsule = makeFixtureCapsule([first, duplicate]);
       const duplicateError = yield* buildManifest({ capsules: [duplicateCapsule] }).pipe(
         Effect.flip,
       );
       assert.strictEqual(manifestErrorTag(duplicateError), "DuplicateMigrationId");
 
-      const third = yield* makeFixtureMigration(3, "third", "CREATE TABLE third (id TEXT)");
-      const gapCapsule = yield* makeFixtureCapsule([first, third]);
+      const third = makeFixtureMigration(3, "third", "CREATE TABLE third (id TEXT)");
+      const gapCapsule = makeFixtureCapsule([first, third]);
       const gapError = yield* buildManifest({ capsules: [gapCapsule] }).pipe(Effect.flip);
       assert.strictEqual(
         manifestErrorTag(gapError),
         new MigrationHistoryGap({ expected: 2, actual: 3 })._tag,
       );
 
-      const second = yield* makeFixtureMigration(2, "second", "CREATE TABLE second (id TEXT)");
-      const reorderedCapsule = yield* makeFixtureCapsule([second, first]);
+      const second = makeFixtureMigration(2, "second", "CREATE TABLE second (id TEXT)");
+      const reorderedCapsule = makeFixtureCapsule([second, first]);
       const reorderedError = yield* buildManifest({ capsules: [reorderedCapsule] }).pipe(
         Effect.flip,
       );
@@ -141,13 +133,9 @@ describe("deterministic manifest integrity", () => {
 
   it.effect("rejects namespace collisions and reads a manifest without functions", () =>
     Effect.gen(function* () {
-      const firstMigration = yield* makeFixtureMigration(
-        1,
-        "first",
-        "CREATE TABLE first (id TEXT)",
-      );
-      const first = yield* makeFixtureCapsule([firstMigration], "first");
-      const second = yield* makeFixtureCapsule([firstMigration], "second");
+      const firstMigration = makeFixtureMigration(1, "first", "CREATE TABLE first (id TEXT)");
+      const first = makeFixtureCapsule([firstMigration], "first");
+      const second = makeFixtureCapsule([firstMigration], "second");
       const colliding = Object.freeze({ ...second, namespace: first.namespace });
       const collisionError = yield* buildManifest({ capsules: [first, colliding] }).pipe(
         Effect.flip,

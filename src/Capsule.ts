@@ -1,7 +1,8 @@
-import { Effect, Layer, Schema } from "effect";
+import { Schema } from "effect";
+import type * as Layer from "effect/Layer";
 import type * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { InvalidCapsuleId, InvalidNamespace } from "./Error.ts";
+import { CapsuleDefinitionError } from "./Error.ts";
 import type { Migration } from "./Migration.ts";
 
 const CAPSULE_ID_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
@@ -38,7 +39,12 @@ const encodeNamespacePart = (id: string): string => {
   return output;
 };
 
-/** Derive a deterministic physical namespace without accepting host renames. */
+/**
+ * Derive a deterministic physical namespace without accepting host renames.
+ *
+ * The encoding is injective, so two distinct capsule identifiers can never
+ * produce the same namespace.
+ */
 export const deriveNamespace = (id: CapsuleId): CapsuleNamespace =>
   Schema.decodeUnknownSync(CapsuleNamespace)(encodeNamespacePart(id));
 
@@ -51,42 +57,37 @@ export interface Capsule<Service, Failure = never, Requirements = SqlClient.SqlC
 }
 
 /** Inputs accepted at the definition boundary. The identifier is parsed here. */
-export interface CapsuleOptions<Service, Failure = never, Requirements = SqlClient.SqlClient> {
-  readonly id: unknown;
+export interface Options<Service, Failure = never, Requirements = SqlClient.SqlClient> {
+  readonly id: string;
   readonly migrations: ReadonlyArray<Migration>;
   readonly layer: Layer.Layer<Service, Failure, Requirements>;
 }
 
-/** Errors raised while parsing a capsule's identity or immutable definition. */
-export type CapsuleDefinitionError = InvalidCapsuleId | InvalidNamespace;
-
-/** Construct an immutable capsule after validating its identity. */
-export const makeCapsule = <Service, Failure = never, Requirements = SqlClient.SqlClient>(
-  options: CapsuleOptions<Service, Failure, Requirements>,
-): Effect.Effect<Capsule<Service, Failure, Requirements>, CapsuleDefinitionError> =>
-  Effect.gen(function* () {
-    const id = yield* Effect.try({
-      try: () => Schema.decodeUnknownSync(CapsuleId)(options.id),
-      catch: (cause) =>
-        new InvalidCapsuleId({
-          value: String(options.id),
-          reason: String(cause),
-        }),
+/**
+ * Construct an immutable capsule after validating its identity.
+ *
+ * This constructor is pure and has `makeUnsafe` semantics: it returns the
+ * capsule directly and throws {@link CapsuleDefinitionError} on an invalid
+ * definition. A capsule is therefore a module-level constant, and a host never
+ * has to run an Effect before it can compose one.
+ */
+export const make = <Service, Failure = never, Requirements = SqlClient.SqlClient>(
+  options: Options<Service, Failure, Requirements>,
+): Capsule<Service, Failure, Requirements> => {
+  let id: CapsuleId;
+  try {
+    id = Schema.decodeUnknownSync(CapsuleId)(options.id);
+  } catch (cause) {
+    throw new CapsuleDefinitionError({
+      subject: `capsule ${JSON.stringify(options.id)}`,
+      reason: String(cause),
     });
+  }
 
-    const namespace = yield* Effect.try({
-      try: () => deriveNamespace(id),
-      catch: (cause) =>
-        new InvalidNamespace({
-          value: String(cause),
-          reason: "The deterministic namespace derivation produced an invalid value",
-        }),
-    });
-
-    return Object.freeze({
-      id,
-      namespace,
-      migrations: Object.freeze([...options.migrations]),
-      layer: options.layer,
-    });
+  return Object.freeze({
+    id,
+    namespace: deriveNamespace(id),
+    migrations: Object.freeze([...options.migrations]),
+    layer: options.layer,
   });
+};

@@ -1,67 +1,51 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
-import { deriveNamespace, makeCapsule } from "../../src/Capsule.ts";
-import { DuplicateCapsule, NamespaceCollision, UnsupportedCapability } from "../../src/Error.ts";
-import {
-  makeMigration,
-  resolveMigrationImplementation,
-  sqlMigrationBody,
-} from "../../src/Migration.ts";
+import * as Capsule from "../../src/Capsule.ts";
+import { CapsuleDefinitionError } from "../../src/Error.ts";
+import * as Migration from "../../src/Migration.ts";
 import { BunSqliteProfile, D1Profile, makeProviderProfile } from "../../src/Provider.ts";
-import { makeRegistry } from "../../src/Registry.ts";
+import * as Registry from "../../src/Registry.ts";
 
-const noopCapsule = (id: string) =>
-  makeCapsule({
-    id,
-    migrations: [],
-    layer: Layer.empty,
-  });
+const noopCapsule = (id: string) => Capsule.make({ id, migrations: [], layer: Layer.empty });
 
 describe("CapsuleDB definition contracts", () => {
-  it.effect("derives one stable namespace from a validated capsule ID", () =>
-    Effect.gen(function* () {
-      const capsule = yield* noopCapsule("reference.tokens");
-      assert.strictEqual(capsule.namespace, deriveNamespace(capsule.id));
-      assert.notStrictEqual(capsule.namespace, "reference.tokens");
-    }),
-  );
+  it("derives one stable namespace from a validated capsule ID", () => {
+    const capsule = noopCapsule("reference.tokens");
+    assert.strictEqual(capsule.namespace, Capsule.deriveNamespace(capsule.id));
+    assert.notStrictEqual(capsule.namespace, "reference.tokens");
+  });
 
-  it.effect("fails invalid IDs through the typed definition channel", () =>
-    Effect.gen(function* () {
-      const result = yield* noopCapsule("Not valid").pipe(
-        Effect.match({
-          onFailure: (error) => error,
-          onSuccess: () => undefined,
-        }),
-      );
-      assert.strictEqual(result?._tag, "InvalidCapsuleId");
-    }),
-  );
+  it("throws on an invalid capsule ID instead of returning an Effect", () => {
+    assert.throws(() => noopCapsule("Not valid"), CapsuleDefinitionError);
+  });
+
+  it("throws on an invalid migration definition instead of returning an Effect", () => {
+    assert.throws(
+      () => Migration.make({ id: 0, name: "zero", risk: "additive", providers: {} }),
+      CapsuleDefinitionError,
+    );
+    assert.throws(
+      () => Migration.make({ id: 1, name: "no-bodies", risk: "additive", providers: {} }),
+      CapsuleDefinitionError,
+    );
+  });
 
   it.effect("rejects duplicate IDs and physical namespace collisions", () =>
     Effect.gen(function* () {
-      const first = yield* noopCapsule("first");
-      const duplicate = yield* noopCapsule("first");
-      const duplicateResult = yield* makeRegistry({
+      const first = noopCapsule("first");
+      const duplicate = yield* Registry.manifest({
         provider: BunSqliteProfile,
-        capsules: [first, duplicate],
+        capsules: [first, noopCapsule("first")],
       }).pipe(Effect.flip);
-      assert.strictEqual(duplicateResult._tag, new DuplicateCapsule({ capsuleId: "first" })._tag);
+      assert.strictEqual(duplicate._tag, "DuplicateCapsule");
 
-      const second = yield* noopCapsule("second");
-      const collision = Object.freeze({ ...second, namespace: first.namespace });
-      const collisionResult = yield* makeRegistry({
+      const second = noopCapsule("second");
+      const collision = yield* Registry.manifest({
         provider: BunSqliteProfile,
-        capsules: [first, collision],
+        capsules: [first, Object.freeze({ ...second, namespace: first.namespace })],
       }).pipe(Effect.flip);
-      assert.strictEqual(
-        collisionResult._tag,
-        new NamespaceCollision({
-          namespace: first.namespace,
-          capsules: ["first", "second"],
-        })._tag,
-      );
+      assert.strictEqual(collision._tag, "NamespaceCollision");
     }),
   );
 
@@ -72,13 +56,7 @@ describe("CapsuleDB definition contracts", () => {
         dialect: D1Profile.dialect,
         capabilities: BunSqliteProfile.capabilities,
       }).pipe(Effect.flip);
-      assert.strictEqual(
-        result._tag,
-        new UnsupportedCapability({
-          dialect: "d1",
-          capability: "interactive transactions, savepoints, streaming, or Effect migrations",
-        })._tag,
-      );
+      assert.strictEqual(result._tag, "UnsupportedCapability");
     }),
   );
 
@@ -95,44 +73,47 @@ describe("CapsuleDB definition contracts", () => {
 
   it.effect("requires a migration implementation for the selected provider", () =>
     Effect.gen(function* () {
-      const migration = yield* makeMigration({
-        id: 1,
-        name: "create-private-state",
-        risk: "additive",
-        providers: {
-          Postgres: sqlMigrationBody(["CREATE TABLE private_state (id TEXT)"]),
-        },
-      });
-      const capsule = yield* makeCapsule({
+      const capsule = Capsule.make({
         id: "private.state",
-        migrations: [migration],
+        migrations: [
+          Migration.make({
+            id: 1,
+            name: "create-private-state",
+            risk: "additive",
+            providers: {
+              Postgres: Migration.sqlBody(["CREATE TABLE private_state (id TEXT)"]),
+            },
+          }),
+        ],
         layer: Layer.empty,
       });
-      const result = yield* makeRegistry({ provider: D1Profile, capsules: [capsule] }).pipe(
-        Effect.flip,
-      );
+      const result = yield* Registry.manifest({
+        provider: D1Profile,
+        capsules: [capsule],
+      }).pipe(Effect.flip);
       assert.strictEqual(result._tag, "MissingProviderMigration");
     }),
   );
 
-  it.effect("resolves exact provider overrides before shared SQL dialect defaults", () =>
-    Effect.gen(function* () {
-      const migration = yield* makeMigration({
-        id: 1,
-        name: "provider-override",
-        risk: "additive",
-        providers: {
-          Sqlite: sqlMigrationBody(["SELECT dialect"]),
-          BunSqlite: sqlMigrationBody(["SELECT provider"]),
-        },
-      });
-      const providerImplementation = resolveMigrationImplementation(migration, BunSqliteProfile);
-      const dialectImplementation = resolveMigrationImplementation(migration, D1Profile);
-      if (providerImplementation?._tag !== "Sql" || dialectImplementation?._tag !== "Sql") {
-        throw new Error("expected static SQL implementations");
-      }
-      assert.deepStrictEqual(providerImplementation.statements, ["SELECT provider"]);
-      assert.deepStrictEqual(dialectImplementation.statements, ["SELECT dialect"]);
-    }),
-  );
+  it("resolves exact provider overrides before shared SQL dialect defaults", () => {
+    const migration = Migration.make({
+      id: 1,
+      name: "provider-override",
+      risk: "additive",
+      providers: {
+        Sqlite: Migration.sqlBody(["SELECT dialect"]),
+        BunSqlite: Migration.sqlBody(["SELECT provider"]),
+      },
+    });
+    const providerImplementation = Migration.resolveMigrationImplementation(
+      migration,
+      BunSqliteProfile,
+    );
+    const dialectImplementation = Migration.resolveMigrationImplementation(migration, D1Profile);
+    if (providerImplementation?._tag !== "Sql" || dialectImplementation?._tag !== "Sql") {
+      throw new Error("expected static SQL implementations");
+    }
+    assert.deepStrictEqual(providerImplementation.statements, ["SELECT provider"]);
+    assert.deepStrictEqual(dialectImplementation.statements, ["SELECT dialect"]);
+  });
 });

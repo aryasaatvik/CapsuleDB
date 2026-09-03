@@ -75,7 +75,11 @@ const d1Body = (
   migration: ManifestMigration,
 ): Effect.Effect<Extract<D1ArtifactFile, { readonly migrationId: number }>, D1ArtifactError> =>
   Effect.gen(function* () {
-    const provider = migration.providers.find((candidate) => candidate.dialect === "D1");
+    // D1 runs the SQLite dialect, so an exact D1 body wins and the shared
+    // SQLite body is the fallback, exactly as runtime resolution does.
+    const provider =
+      migration.providers.find((candidate) => candidate.dialect === "D1") ??
+      migration.providers.find((candidate) => candidate.dialect === "Sqlite");
     if (provider === undefined) {
       return yield* Effect.fail(
         new MissingProviderMigration({ migrationId: migration.id, dialect: "D1" }),

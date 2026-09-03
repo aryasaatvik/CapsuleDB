@@ -2,11 +2,11 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { makeCapsule } from "../../src/Capsule.ts";
+import * as Capsule from "../../src/Capsule.ts";
 import { profile as d1Profile } from "../../src/D1.ts";
 import { LedgerConflict } from "../../src/Error.ts";
-import { effectMigrationBody, makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
-import { makeRegistry, prepare } from "../../src/Registry.ts";
+import * as Migration from "../../src/Migration.ts";
+import * as Registry from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import {
   OneTimeTokens,
@@ -30,37 +30,37 @@ describe("D1 atomic migration runner", () => {
       withD1((client) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const first = yield* makeMigration({
+            const first = Migration.make({
               id: 1,
               name: "first-valid-migration",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody([
+                D1: Migration.sqlBody([
                   'CREATE TABLE "d1_preflight_first" (id TEXT PRIMARY KEY NOT NULL)',
                 ]),
               },
             });
-            const second = yield* makeMigration({
+            const second = Migration.make({
               id: 2,
               name: "second-over-limit-migration",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody([
+                D1: Migration.sqlBody([
                   'CREATE TABLE "d1_preflight_second_a" (id TEXT PRIMARY KEY NOT NULL)',
                   'CREATE TABLE "d1_preflight_second_b" (id TEXT PRIMARY KEY NOT NULL)',
                 ]),
               },
             });
-            const capsule = yield* makeCapsule({
+            const capsule = Capsule.make({
               id: "d1.preflight",
               migrations: [first, second],
               layer: Layer.empty,
             });
-            const registry = yield* makeRegistry({
+            const registry = {
               provider: d1Profile,
               capsules: [capsule],
-            });
-            const failure = yield* prepare(registry).pipe(Effect.flip);
+            };
+            const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
             assert.strictEqual(failure._tag, "InvalidDefinition");
             assert.deepStrictEqual(
               yield* client<{ readonly name: string }>`SELECT name FROM sqlite_master
@@ -84,27 +84,27 @@ describe("D1 atomic migration runner", () => {
       withD1((client) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const migration = yield* makeMigration({
+            const migration = Migration.make({
               id: 1,
               name: "failing-d1-migration",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody([
+                D1: Migration.sqlBody([
                   'CREATE TABLE "d1_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
                   "THIS IS NOT VALID SQL",
                 ]),
               },
             });
-            const capsule = yield* makeCapsule({
+            const capsule = Capsule.make({
               id: "d1.failure",
               migrations: [migration],
               layer: Layer.empty,
             });
-            const registry = yield* makeRegistry({
+            const registry = {
               provider: limitedD1({ maxStatements: 3 }),
               capsules: [capsule],
-            });
-            const failure = yield* prepare(registry).pipe(Effect.flip);
+            };
+            const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
             assert.strictEqual(failure._tag, "SqlError");
             assert.deepStrictEqual(
               yield* client<{ readonly name: string }>`SELECT name FROM sqlite_master
@@ -128,28 +128,31 @@ describe("D1 atomic migration runner", () => {
       withD1((client) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const migration = yield* makeMigration({
+            const migration = Migration.make({
               id: 1,
               name: "concurrent-d1-migration",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody([
+                D1: Migration.sqlBody([
                   'CREATE TABLE "d1_concurrent_marker" (id TEXT PRIMARY KEY NOT NULL)',
                 ]),
               },
             });
-            const capsule = yield* makeCapsule({
+            const capsule = Capsule.make({
               id: "d1.concurrent",
               migrations: [migration],
               layer: Layer.empty,
             });
-            const registry = yield* makeRegistry({
+            const registry = {
               provider: d1Profile,
               capsules: [capsule],
-            });
-            const receipts = yield* Effect.all([prepare(registry), prepare(registry)], {
-              concurrency: "unbounded",
-            });
+            };
+            const receipts = yield* Effect.all(
+              [Registry.prepare(registry), Registry.prepare(registry)],
+              {
+                concurrency: "unbounded",
+              },
+            );
             assert.deepStrictEqual(receipts[0], receipts[1]);
             assert.deepStrictEqual(
               yield* client<{ readonly count: number }>`SELECT COUNT(*) AS count
@@ -168,25 +171,25 @@ describe("D1 atomic migration runner", () => {
       withD1((client) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const migration = yield* makeMigration({
+            const migration = Migration.make({
               id: 1,
               name: "d1-name-conflict",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody([
+                D1: Migration.sqlBody([
                   'CREATE TABLE "d1_name_conflict" (id TEXT PRIMARY KEY NOT NULL)',
                 ]),
               },
             });
-            const capsule = yield* makeCapsule({
+            const capsule = Capsule.make({
               id: "d1.name-conflict",
               migrations: [migration],
               layer: Layer.empty,
             });
-            const registry = yield* makeRegistry({
+            const registry = {
               provider: d1Profile,
               capsules: [capsule],
-            });
+            };
             const conflictClient = new Proxy(client, {
               get(target, property, receiver) {
                 if (property !== "batch") return Reflect.get(target, property, receiver);
@@ -201,7 +204,7 @@ describe("D1 atomic migration runner", () => {
                   );
               },
             }) as unknown as SqlClient.SqlClient;
-            const failure = yield* prepare(registry).pipe(
+            const failure = yield* Registry.prepare(registry).pipe(
               Effect.provideService(SqlClient.SqlClient, conflictClient),
               Effect.flip,
             );
@@ -226,12 +229,12 @@ describe("D1 atomic migration runner", () => {
       withD1((client) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const capsule = yield* referenceTokenCapsule;
-            const registry = yield* makeRegistry({
+            const capsule = referenceTokenCapsule;
+            const registry = {
               provider: d1Profile,
               capsules: [capsule],
-            });
-            yield* prepare(registry);
+            };
+            yield* Registry.prepare(registry);
             const service = yield* Effect.service(OneTimeTokens);
             const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
             const attempts = yield* Effect.all(
@@ -266,24 +269,24 @@ describe("D1 atomic migration runner", () => {
       withD1((client) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const migration = yield* makeMigration({
+            const migration = Migration.make({
               id: 1,
               name: "oversized-d1-migration",
               risk: "additive",
               providers: {
-                D1: sqlMigrationBody(['CREATE TABLE "d1_oversized_marker" (value TEXT NOT NULL)']),
+                D1: Migration.sqlBody(['CREATE TABLE "d1_oversized_marker" (value TEXT NOT NULL)']),
               },
             });
-            const capsule = yield* makeCapsule({
+            const capsule = Capsule.make({
               id: "d1.oversized",
               migrations: [migration],
               layer: Layer.empty,
             });
-            const registry = yield* makeRegistry({
+            const registry = {
               provider: limitedD1({ maxSqlStatementBytes: 32 }),
               capsules: [capsule],
-            });
-            const failure = yield* prepare(registry).pipe(Effect.flip);
+            };
+            const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
             assert.strictEqual(failure._tag, "InvalidDefinition");
             assert.deepStrictEqual(
               yield* client<{ readonly name: string }>`SELECT name FROM sqlite_master
@@ -299,20 +302,20 @@ describe("D1 atomic migration runner", () => {
   it.effect("rejects dynamic Effect migration bodies at the D1 boundary", () =>
     withD1(() =>
       Effect.gen(function* () {
-        const migration = yield* makeMigration({
+        const migration = Migration.make({
           id: 1,
           name: "dynamic-d1-migration",
           risk: "additive",
           providers: {
-            D1: effectMigrationBody("dynamic-d1-migration", Effect.void),
+            D1: Migration.effectBody("dynamic-d1-migration", Effect.void),
           },
         });
-        const capsule = yield* makeCapsule({
+        const capsule = Capsule.make({
           id: "d1.dynamic",
           migrations: [migration],
           layer: Layer.empty,
         });
-        const failure = yield* makeRegistry({
+        const failure = yield* Registry.manifest({
           provider: d1Profile,
           capsules: [capsule],
         }).pipe(Effect.flip);

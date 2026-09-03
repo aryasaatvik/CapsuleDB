@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { profile as d1Profile } from "../../src/D1.ts";
-import { makeRegistry, prepare, status } from "../../src/Registry.ts";
+import * as Registry from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import {
   OneTimeTokens,
@@ -18,14 +18,14 @@ describe("reference token capsule over a host-supplied D1 binding", () => {
         Effect.gen(function* () {
           yield* Effect.scoped(
             Effect.gen(function* () {
-              const capsule = yield* referenceTokenCapsule;
-              const registry = yield* makeRegistry({
+              const capsule = referenceTokenCapsule;
+              const registry = {
                 provider: d1Profile,
                 capsules: [capsule],
-              });
-              const receipt = yield* prepare(registry);
+              };
+              const receipt = yield* Registry.prepare(registry);
               assert.strictEqual(receipt.provider, "d1");
-              assert.strictEqual((yield* status(registry))._tag, "Ready");
+              assert.strictEqual((yield* Registry.status(registry))._tag, "Ready");
 
               const service = yield* Effect.service(OneTimeTokens);
               const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
@@ -49,12 +49,12 @@ describe("reference token capsule over a host-supplied D1 binding", () => {
       withD1((client) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const capsule = yield* referenceTokenCapsule;
-            const registry = yield* makeRegistry({
+            const capsule = referenceTokenCapsule;
+            const registry = {
               provider: d1Profile,
               capsules: [capsule],
-            });
-            yield* prepare(registry);
+            };
+            yield* Registry.prepare(registry);
             const service = yield* Effect.service(OneTimeTokens);
             const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
 
