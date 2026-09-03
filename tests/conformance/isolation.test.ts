@@ -3,10 +3,11 @@ import { Context, Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
-import { makeCapsule } from "../../src/Capsule.ts";
-import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
+import * as Capsule from "../../src/Capsule.ts";
+import * as Migration from "../../src/Migration.ts";
+import * as Schema from "../../src/Schema.ts";
 import { BunSqliteProfile } from "../../src/Provider.ts";
-import { makeRegistry, prepare, status } from "../../src/Registry.ts";
+import * as Registry from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import { providerCases } from "../providers/cases.ts";
 
@@ -23,7 +24,8 @@ class IsolationProbe extends Context.Service<IsolationProbe, IsolationProbeServi
   static readonly layer: Layer.Layer<IsolationProbe, never, SqlClient.SqlClient> = Layer.effect(
     IsolationProbe,
     Effect.map(Effect.service(SqlClient.SqlClient), (sql) => ({
-      put: (value: number) => sql`INSERT INTO ${sql(ISOLATION_TABLE)} (value) VALUES (${value})`,
+      put: (value: number) =>
+        sql`INSERT INTO ${sql(ISOLATION_TABLE)} (id, value) VALUES (${String(value)}, ${value})`,
       count: () =>
         sql<{ readonly count: number }>`SELECT COUNT(*) AS count
           FROM ${sql(ISOLATION_TABLE)}`.pipe(Effect.map((rows) => rows[0]?.count ?? 0)),
@@ -31,29 +33,28 @@ class IsolationProbe extends Context.Service<IsolationProbe, IsolationProbeServi
   );
 }
 
-const makeEmptyCapsule = (id: string) => makeCapsule({ id, migrations: [], layer: Layer.empty });
+const makeEmptyCapsule = (id: string) => Capsule.make({ id, migrations: [], layer: Layer.empty });
 
-const isolationCapsule = Effect.gen(function* () {
-  const migration = yield* makeMigration({
-    id: 1,
-    name: "create-isolation-probe",
-    risk: "additive",
-    providers: {
-      Sqlite: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
-      Libsql: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
-      Postgres: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
-      D1: sqlMigrationBody([`CREATE TABLE "${ISOLATION_TABLE}" (value INTEGER NOT NULL)`]),
-    },
-  });
-  return yield* makeCapsule({
-    id: "isolation.probe",
-    migrations: [migration],
-    layer: IsolationProbe.layer,
-  });
+const isolationTable = Schema.table(ISOLATION_TABLE, {
+  columns: { id: Schema.text(), value: Schema.integer() },
+  primaryKey: ["id"],
+});
+
+const isolationCapsule = Capsule.make({
+  id: "isolation.probe",
+  migrations: [
+    Migration.make({
+      id: 1,
+      name: "create-isolation-probe",
+      risk: "additive",
+      steps: [Migration.createTable(isolationTable)],
+    }),
+  ],
+  layer: IsolationProbe.layer,
 });
 
 const tableNames = (provider: (typeof providerCases)[number], client: SqlClient.SqlClient) =>
-  provider.profile.dialect._tag === "Postgres"
+  provider.profile.dialect === "postgres"
     ? client<{ readonly name: string }>`SELECT tablename AS name
         FROM pg_catalog.pg_tables
         WHERE schemaname = 'public'
@@ -71,14 +72,14 @@ describe("CapsuleDB capsule isolation", () => {
       () =>
         provider.withClient((client) =>
           Effect.gen(function* () {
-            const first = yield* referenceTokenCapsule;
-            const second = yield* isolationCapsule;
-            const registry = yield* makeRegistry({
+            const first = referenceTokenCapsule;
+            const second = isolationCapsule;
+            const registry = {
               provider: provider.profile,
               capsules: [first, second],
-            });
-            yield* prepare(registry);
-            assert.strictEqual((yield* status(registry))._tag, "Ready");
+            };
+            yield* Registry.prepare(registry);
+            assert.strictEqual((yield* Registry.status(registry))._tag, "Ready");
             assert.deepStrictEqual(yield* tableNames(provider, client), [
               { name: "capsule_isolation_probe" },
               { name: "capsule_reference_2e_tokens" },
@@ -99,22 +100,22 @@ describe("CapsuleDB capsule isolation", () => {
             assert.strictEqual(Number(rows[0]?.count), 1);
           }).pipe(Effect.provideService(SqlClient.SqlClient, client)),
         ),
-      provider.profile.dialect._tag === "Postgres" ? 60_000 : 30_000,
+      provider.profile.dialect === "postgres" ? 60_000 : 30_000,
     );
   }
 
   it.effect("rejects duplicate IDs and derived namespace collisions", () =>
     Effect.gen(function* () {
-      const first = yield* makeEmptyCapsule("collision.first");
-      const second = yield* makeEmptyCapsule("collision.second");
+      const first = makeEmptyCapsule("collision.first");
+      const second = makeEmptyCapsule("collision.second");
 
-      const duplicate = yield* makeRegistry({
+      const duplicate = yield* Registry.manifest({
         provider: BunSqliteProfile,
         capsules: [first, first],
       }).pipe(Effect.flip);
       assert.strictEqual(duplicate._tag, "DuplicateCapsule");
 
-      const collision = yield* makeRegistry({
+      const collision = yield* Registry.manifest({
         provider: BunSqliteProfile,
         capsules: [first, Object.freeze({ ...second, namespace: first.namespace })],
       }).pipe(Effect.flip);

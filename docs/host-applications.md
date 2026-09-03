@@ -14,48 +14,42 @@ so startup does not discover packages or infer migrations:
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { Pg, makeRegistry, prepare } from "capsuledb";
+import { Pg, Registry } from "capsuledb";
 import { capsule } from "./capsule.js";
 
-const bootCapsule = Effect.gen(function* () {
-  const registry = yield* makeRegistry({
-    provider: Pg.profile,
-    capsules: [capsule],
-  });
-  return yield* prepare(registry);
-}).pipe(Effect.provideService(SqlClient.SqlClient, hostOwnedSqlClient));
-```
+export const CapsulesLive = Registry.layer({
+  provider: Pg.profile,
+  capsules: [capsule],
+});
 
-Call `prepare` during the host's startup/readiness phase. It ensures the
-runtime ledger and metadata exist, validates existing entries, applies pending
-migrations, and returns a `ReadinessReceipt` containing the manifest
-fingerprint and provider. Do not expose capsule services to requests before
-this effect succeeds. If preparation fails, keep the host unhealthy and
-surface the typed failure; do not continue with a partially prepared registry.
-
-To use an opaque service, compose the capsule's layer with the same
-host-owned client after preparation:
-
-```ts
-const application = Effect.gen(function* () {
-  const registry = yield* makeRegistry({ provider: Pg.profile, capsules: [capsule] });
-  yield* prepare(registry);
-  return yield* Effect.service(CapsuleService);
-}).pipe(
-  Effect.provide(capsule.layer),
+const application = Effect.service(CapsuleService).pipe(
+  Effect.provide(CapsulesLive),
   Effect.provideService(SqlClient.SqlClient, hostOwnedSqlClient),
 );
 ```
 
-The service layer is package-owned and may require `SqlClient`; the host still
-owns the client lifetime and authorization policy.
+`Registry.layer` runs preparation while the layer is built and only then
+provides each capsule's service, so a service can never observe a database
+whose tables are missing. Preparation ensures the runtime ledger and metadata
+exist, validates existing entries, and applies pending migrations. If it fails,
+the layer fails: keep the host unhealthy and surface the typed failure rather
+than continuing with a partially prepared registry.
+
+`Registry.prepare(options)` is the same work as an `Effect` for a host that
+wants an explicit startup step, and it answers with the `Ready` readiness
+value. The service layers are package-owned and may require `SqlClient` and
+other host services; the host still owns the client lifetime and the
+authorization policy.
 
 ## Readiness and repeated startup
 
-`status(registry)` reports `Pending`, `Ready`, or `Stale`. A `Ready` result is
-valid only when the metadata fingerprint, provider, and complete active ledger
-all agree with the current registry. `assertRegistryReady` is the cheap
-fail-closed assertion for a host that has already completed preparation.
+`Registry.status(options)` reports one readiness union: `Pending` (with the
+migrations still to run), `Ready`, or `Drift` (with the reason preparation
+cannot repair the disagreement). A `Ready` result is valid only when the
+metadata fingerprint, provider, and complete active ledger all agree with the
+current registry. `Registry.assert(options)` is the cheap fail-closed
+assertion for a host that has already completed preparation; it fails with
+`NotReady` in every other state.
 
 Do not treat a metadata row by itself as readiness. A missing ledger row,
 checksum/name conflict, provider mismatch, database-ahead row, or partial
@@ -67,12 +61,26 @@ Destructive migrations are denied by default. An operator must make the
 authorization visible for the specific preparation run:
 
 ```ts
-yield * prepare(registry, { allowDestructive: true });
+Registry.layer({ provider: Pg.profile, capsules: [capsule], allowDestructive: true });
 ```
 
 The runtime checks every pending destructive migration before applying an
 earlier additive migration in that run. CapsuleDB does not decide whether a
 deployment is approved; the host supplies that policy.
+
+## Sharing a database between registries
+
+CapsuleDB owns two tables of its own. `prefix` renames them, so two independent
+registries — a second application, or a tenant-scoped deployment — can share one
+database:
+
+```ts
+Registry.layer({ provider: Pg.profile, capsules: [capsule], prefix: "tenant" });
+```
+
+The default is `capsuledb`. The prefix is part of the physical layout: changing
+it after a deployment hides the existing ledger and makes every applied
+migration look pending.
 
 ## Removal and re-registration
 

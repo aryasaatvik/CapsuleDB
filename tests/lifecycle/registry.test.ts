@@ -4,16 +4,16 @@ import { Effect, Fiber, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
-import { makeCapsule } from "../../src/Capsule.ts";
+import * as Capsule from "../../src/Capsule.ts";
 import {
   DatabaseAhead,
   DestructiveMigrationUnauthorized,
   LedgerConflict,
   PartialMigration,
 } from "../../src/Error.ts";
-import { effectMigrationBody, makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
+import * as Migration from "../../src/Migration.ts";
 import { BunSqliteProfile, LibsqlProfile } from "../../src/Provider.ts";
-import { makeRegistry, prepare, status } from "../../src/Registry.ts";
+import * as Registry from "../../src/Registry.ts";
 import { makeFixtureCapsule, makeFixtureMigration } from "../fixtures/migrations.ts";
 
 const withSqlite = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -23,31 +23,31 @@ describe("registry migration lifecycle", () => {
   it.effect("refuses pending destructive migrations before applying earlier work", () =>
     withSqlite(
       Effect.gen(function* () {
-        const first = yield* makeMigration({
+        const first = Migration.make({
           id: 1,
           name: "create-before-destructive",
           risk: "additive",
-          providers: {
-            Sqlite: sqlMigrationBody([
-              'CREATE TABLE "lifecycle_before_destructive" (id TEXT PRIMARY KEY NOT NULL)',
-            ]),
-          },
+          steps: [
+            Migration.sql({
+              sqlite: [
+                'CREATE TABLE "lifecycle_before_destructive" (id TEXT PRIMARY KEY NOT NULL)',
+              ],
+            }),
+          ],
         });
-        const second = yield* makeMigration({
+        const second = Migration.make({
           id: 2,
           name: "drop-before-destructive",
           risk: "destructive",
-          providers: {
-            Sqlite: sqlMigrationBody(['DROP TABLE "lifecycle_before_destructive"']),
-          },
+          steps: [Migration.sql({ sqlite: ['DROP TABLE "lifecycle_before_destructive"'] })],
         });
-        const capsule = yield* makeCapsule({
+        const capsule = Capsule.make({
           id: "lifecycle.destructive",
           migrations: [first, second],
           layer: Layer.empty,
         });
-        const registry = yield* makeRegistry({ provider: BunSqliteProfile, capsules: [capsule] });
-        const failure = yield* prepare(registry).pipe(Effect.flip);
+        const registry = { provider: BunSqliteProfile, capsules: [capsule] };
+        const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
         assert.strictEqual(
           failure._tag,
           new DestructiveMigrationUnauthorized({
@@ -64,7 +64,7 @@ describe("registry migration lifecycle", () => {
           [],
         );
 
-        yield* prepare(registry, { allowDestructive: true });
+        yield* Registry.prepare({ ...registry, allowDestructive: true });
         assert.deepStrictEqual(
           yield* sql<{ readonly migration_id: number }>`SELECT migration_id
             FROM "capsuledb_registry_ledger" WHERE capsule_id = 'lifecycle.destructive'
@@ -78,21 +78,21 @@ describe("registry migration lifecycle", () => {
   it.effect("fails closed when the database is ahead of the registered code", () =>
     withSqlite(
       Effect.gen(function* () {
-        const migration = yield* makeFixtureMigration(
+        const migration = makeFixtureMigration(
           1,
           "create-ahead-probe",
           'CREATE TABLE "lifecycle_ahead_probe" (id TEXT PRIMARY KEY NOT NULL)',
         );
-        const capsule = yield* makeFixtureCapsule([migration], "lifecycle.ahead");
-        const registry = yield* makeRegistry({ provider: BunSqliteProfile, capsules: [capsule] });
-        yield* prepare(registry);
+        const capsule = makeFixtureCapsule([migration], "lifecycle.ahead");
+        const registry = { provider: BunSqliteProfile, capsules: [capsule] };
+        yield* Registry.prepare(registry);
         const sql = yield* Effect.service(SqlClient.SqlClient);
         yield* sql`INSERT INTO ${sql("capsuledb_registry_ledger")}
           (capsule_id, migration_id, name, checksum, applied_at)
           VALUES ('lifecycle.ahead', 2, 'future-migration', ${"f".repeat(64)},
             '2099-01-01T00:00:00.000Z')`;
 
-        const failure = yield* prepare(registry).pipe(Effect.flip);
+        const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
         assert.strictEqual(
           failure._tag,
           new DatabaseAhead({
@@ -108,21 +108,21 @@ describe("registry migration lifecycle", () => {
   it.effect("preserves removed capsule data and resumes on re-registration", () =>
     withSqlite(
       Effect.gen(function* () {
-        const migration = yield* makeFixtureMigration(
+        const migration = makeFixtureMigration(
           1,
           "create-removed-capsule",
           'CREATE TABLE "lifecycle_removed_capsule" (id TEXT PRIMARY KEY NOT NULL)',
         );
-        const capsule = yield* makeFixtureCapsule([migration], "lifecycle.removed");
-        const registry = yield* makeRegistry({ provider: BunSqliteProfile, capsules: [capsule] });
-        yield* prepare(registry);
+        const capsule = makeFixtureCapsule([migration], "lifecycle.removed");
+        const registry = { provider: BunSqliteProfile, capsules: [capsule] };
+        yield* Registry.prepare(registry);
         const sql = yield* Effect.service(SqlClient.SqlClient);
         yield* sql.unsafe("INSERT INTO \"lifecycle_removed_capsule\" (id) VALUES ('retained')");
         yield* sql`UPDATE "capsuledb_registry_ledger" SET provider = 'libsql'
           WHERE capsule_id = 'lifecycle.removed'`;
 
-        const emptyRegistry = yield* makeRegistry({ provider: BunSqliteProfile, capsules: [] });
-        yield* prepare(emptyRegistry);
+        const emptyRegistry = { provider: BunSqliteProfile, capsules: [] };
+        yield* Registry.prepare(emptyRegistry);
         assert.deepStrictEqual(
           yield* sql<{ readonly id: string }>`SELECT id FROM "lifecycle_removed_capsule"`,
           [{ id: "retained" }],
@@ -130,7 +130,7 @@ describe("registry migration lifecycle", () => {
 
         yield* sql`UPDATE "capsuledb_registry_ledger" SET provider = 'sqlite'
           WHERE capsule_id = 'lifecycle.removed'`;
-        yield* prepare(registry);
+        yield* Registry.prepare(registry);
         assert.deepStrictEqual(
           yield* sql<{ readonly id: string }>`SELECT id FROM "lifecycle_removed_capsule"`,
           [{ id: "retained" }],
@@ -142,20 +142,20 @@ describe("registry migration lifecycle", () => {
   it.effect("reports a partial state when readiness metadata claims completion", () =>
     withSqlite(
       Effect.gen(function* () {
-        const migration = yield* makeFixtureMigration(
+        const migration = makeFixtureMigration(
           1,
           "create-partial-probe",
           'CREATE TABLE "lifecycle_partial_probe" (id TEXT PRIMARY KEY NOT NULL)',
         );
-        const capsule = yield* makeFixtureCapsule([migration], "lifecycle.partial");
-        const registry = yield* makeRegistry({ provider: BunSqliteProfile, capsules: [capsule] });
-        yield* prepare(registry);
+        const capsule = makeFixtureCapsule([migration], "lifecycle.partial");
+        const registry = { provider: BunSqliteProfile, capsules: [capsule] };
+        yield* Registry.prepare(registry);
         const sql = yield* Effect.service(SqlClient.SqlClient);
         yield* sql.unsafe(
           "DELETE FROM \"capsuledb_registry_ledger\" WHERE capsule_id = 'lifecycle.partial'",
         );
 
-        const failure = yield* prepare(registry).pipe(Effect.flip);
+        const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
         assert.strictEqual(
           failure._tag,
           new PartialMigration({
@@ -165,7 +165,7 @@ describe("registry migration lifecycle", () => {
               "readiness metadata claims the registry is complete but its ledger is incomplete",
           })._tag,
         );
-        assert.strictEqual((yield* status(registry))._tag, "Stale");
+        assert.strictEqual((yield* Registry.status(registry))._tag, "Drift");
       }),
     ),
   );
@@ -173,37 +173,36 @@ describe("registry migration lifecycle", () => {
   it.effect("fails closed when another provider ledger survives deleted metadata", () =>
     withSqlite(
       Effect.gen(function* () {
-        const migration = yield* makeMigration({
+        const migration = Migration.make({
           id: 1,
           name: "provider-switch-probe",
           risk: "additive",
-          providers: {
-            Sqlite: sqlMigrationBody([
-              'CREATE TABLE "lifecycle_provider_switch_sqlite" (id TEXT PRIMARY KEY NOT NULL)',
-            ]),
-            Libsql: sqlMigrationBody([
-              'CREATE TABLE "lifecycle_provider_switch_libsql" (id TEXT PRIMARY KEY NOT NULL)',
-            ]),
-          },
+          steps: [
+            Migration.sql({
+              sqlite: [
+                'CREATE TABLE "lifecycle_provider_switch_sqlite" (id TEXT PRIMARY KEY NOT NULL)',
+              ],
+            }),
+          ],
         });
-        const capsule = yield* makeCapsule({
+        const capsule = Capsule.make({
           id: "lifecycle.provider-switch",
           migrations: [migration],
           layer: Layer.empty,
         });
-        const sqliteRegistry = yield* makeRegistry({
+        const sqliteRegistry = {
           provider: BunSqliteProfile,
           capsules: [capsule],
-        });
-        yield* prepare(sqliteRegistry);
+        };
+        yield* Registry.prepare(sqliteRegistry);
         const sql = yield* Effect.service(SqlClient.SqlClient);
         yield* sql.unsafe('DELETE FROM "capsuledb_registry_metadata"');
 
-        const libsqlRegistry = yield* makeRegistry({
+        const libsqlRegistry = {
           provider: LibsqlProfile,
           capsules: [capsule],
-        });
-        const failure = yield* prepare(libsqlRegistry).pipe(Effect.flip);
+        };
+        const failure = yield* Registry.prepare(libsqlRegistry).pipe(Effect.flip);
         assert.strictEqual(failure._tag, "ProviderMismatch");
         assert.deepStrictEqual(
           yield* sql<{ readonly name: string }>`SELECT name FROM sqlite_master
@@ -217,16 +216,19 @@ describe("registry migration lifecycle", () => {
   it.effect("serializes concurrent preparation to one exact history", () =>
     withSqlite(
       Effect.gen(function* () {
-        const migration = yield* makeFixtureMigration(
+        const migration = makeFixtureMigration(
           1,
           "create-concurrent-probe",
           'CREATE TABLE "lifecycle_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)',
         );
-        const capsule = yield* makeFixtureCapsule([migration], "lifecycle.concurrent");
-        const registry = yield* makeRegistry({ provider: BunSqliteProfile, capsules: [capsule] });
-        const receipts = yield* Effect.all([prepare(registry), prepare(registry)], {
-          concurrency: "unbounded",
-        });
+        const capsule = makeFixtureCapsule([migration], "lifecycle.concurrent");
+        const registry = { provider: BunSqliteProfile, capsules: [capsule] };
+        const receipts = yield* Effect.all(
+          [Registry.prepare(registry), Registry.prepare(registry)],
+          {
+            concurrency: "unbounded",
+          },
+        );
         assert.deepStrictEqual(receipts[0], receipts[1]);
         const sql = yield* Effect.service(SqlClient.SqlClient);
         assert.deepStrictEqual(
@@ -241,13 +243,13 @@ describe("registry migration lifecycle", () => {
   it.effect("does not converge a transactional conflict when the name diverges", () =>
     withSqlite(
       Effect.gen(function* () {
-        const migration = yield* makeFixtureMigration(
+        const migration = makeFixtureMigration(
           1,
           "transactional-name-conflict",
           'CREATE TABLE "lifecycle_name_conflict" (id TEXT PRIMARY KEY NOT NULL)',
         );
-        const capsule = yield* makeFixtureCapsule([migration], "lifecycle.name-conflict");
-        const registry = yield* makeRegistry({ provider: BunSqliteProfile, capsules: [capsule] });
+        const capsule = makeFixtureCapsule([migration], "lifecycle.name-conflict");
+        const registry = { provider: BunSqliteProfile, capsules: [capsule] };
         const sql = yield* Effect.service(SqlClient.SqlClient);
         const conflictClient = new Proxy(sql, {
           get(target, property, receiver) {
@@ -263,7 +265,7 @@ describe("registry migration lifecycle", () => {
               );
           },
         }) as unknown as SqlClient.SqlClient;
-        const failure = yield* prepare(registry).pipe(
+        const failure = yield* Registry.prepare(registry).pipe(
           Effect.provideService(SqlClient.SqlClient, conflictClient),
           Effect.flip,
         );
@@ -283,12 +285,12 @@ describe("registry migration lifecycle", () => {
   it.effect("rolls back an interrupted transactional migration", () =>
     withSqlite(
       Effect.gen(function* () {
-        const migration = yield* makeMigration({
+        const migration = Migration.make({
           id: 1,
           name: "interruptible-migration",
           risk: "additive",
-          providers: {
-            Sqlite: effectMigrationBody<SqlError>(
+          steps: [
+            Migration.effect<SqlError>(
               "CREATE TABLE lifecycle_interruptible",
               Effect.gen(function* () {
                 const sql = yield* Effect.service(SqlClient.SqlClient);
@@ -298,15 +300,15 @@ describe("registry migration lifecycle", () => {
                 yield* Effect.sleep("10 seconds");
               }),
             ),
-          },
+          ],
         });
-        const capsule = yield* makeCapsule({
+        const capsule = Capsule.make({
           id: "lifecycle.interruptible",
           migrations: [migration],
           layer: Layer.empty,
         });
-        const registry = yield* makeRegistry({ provider: BunSqliteProfile, capsules: [capsule] });
-        const fiber = yield* prepare(registry).pipe(Effect.forkScoped);
+        const registry = { provider: BunSqliteProfile, capsules: [capsule] };
+        const fiber = yield* Registry.prepare(registry).pipe(Effect.forkScoped);
         yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 20)));
         yield* Fiber.interrupt(fiber);
         const sql = yield* Effect.service(SqlClient.SqlClient);

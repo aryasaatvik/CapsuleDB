@@ -1,27 +1,19 @@
 import { Effect, Schema } from "effect";
 
+import type { Dialect } from "./Dialect.ts";
 import { InvalidDefinition, UnsupportedCapability } from "./Error.ts";
 
-/** Canonical provider identity used for exact migration overrides. */
-export const Provider = Schema.TaggedUnion({
-  BunSqlite: {},
-  Libsql: {},
-  Postgres: {},
-  D1: {},
-});
+/** Canonical provider identity. */
+export const Provider = Schema.Union([
+  Schema.Literal("BunSqlite"),
+  Schema.Literal("Libsql"),
+  Schema.Literal("Postgres"),
+  Schema.Literal("D1"),
+]);
 
 export type Provider = typeof Provider.Type;
 
-/** SQL syntax family shared by SQLite-family providers. */
-export const Dialect = Schema.TaggedUnion({
-  Sqlite: {},
-  Postgres: {},
-});
-
-export type Dialect = typeof Dialect.Type;
-
-/** Stable provider implementation keys used by migration maps and manifests. */
-export const providerDialectTags = ["BunSqlite", "Libsql", "Postgres", "D1", "Sqlite"] as const;
+const DialectSchema = Schema.Union([Schema.Literal("postgres"), Schema.Literal("sqlite")]);
 
 /** Provider execution capabilities, kept separate from the SQL dialect. */
 export const ProviderCapabilities = Schema.TaggedUnion({
@@ -53,20 +45,15 @@ export const ProviderCapabilities = Schema.TaggedUnion({
 
 export type ProviderCapabilities = typeof ProviderCapabilities.Type;
 
-/** A complete provider profile required by registry and manifest validation. */
+/**
+ * A complete provider profile required by registry and manifest validation.
+ *
+ * `capabilities._tag` is the execution model; there is no second field
+ * restating it.
+ */
 export const ProviderProfile = Schema.Struct({
   provider: Provider,
-  dialect: Dialect,
-  execution: Schema.Union([Schema.Literal("Transactional"), Schema.Literal("AtomicBatch")]),
-  capabilities: ProviderCapabilities,
-});
-
-const ProviderProfileInput = Schema.Struct({
-  provider: Schema.optional(Provider),
-  dialect: Dialect,
-  execution: Schema.optional(
-    Schema.Union([Schema.Literal("Transactional"), Schema.Literal("AtomicBatch")]),
-  ),
+  dialect: DialectSchema,
   capabilities: ProviderCapabilities,
 });
 
@@ -74,19 +61,13 @@ export type ProviderProfile = typeof ProviderProfile.Type;
 
 export type ProviderProfileError = InvalidDefinition | UnsupportedCapability;
 
-/** The stable textual dialect key used by migration implementation maps. */
-export const dialectName = (dialect: Dialect): "sqlite" | "postgres" => {
-  switch (dialect._tag) {
-    case "Sqlite":
-      return "sqlite";
-    case "Postgres":
-      return "postgres";
-  }
-};
+/** The dialect each provider speaks. */
+export const providerDialect = (provider: Provider): Dialect =>
+  provider === "Postgres" ? "postgres" : "sqlite";
 
-/** Stable provider identity key used in persistence and migration resolution. */
+/** Stable provider identity key used in persistence and ledger stamping. */
 export const providerName = (provider: Provider): "sqlite" | "libsql" | "postgres" | "d1" => {
-  switch (provider._tag) {
+  switch (provider) {
     case "BunSqlite":
       return "sqlite";
     case "Libsql":
@@ -110,7 +91,7 @@ export const makeProviderProfile = (
 ): Effect.Effect<ProviderProfile, ProviderProfileError> =>
   Effect.gen(function* () {
     const profile = yield* Effect.try({
-      try: () => Schema.decodeUnknownSync(ProviderProfileInput)(input),
+      try: () => Schema.decodeUnknownSync(ProviderProfile)(input),
       catch: (cause) =>
         new InvalidDefinition({
           subject: "provider profile",
@@ -118,28 +99,16 @@ export const makeProviderProfile = (
         }),
     });
 
-    const provider =
-      profile.provider ??
-      (profile.dialect._tag === "Postgres" ? { _tag: "Postgres" } : { _tag: "BunSqlite" });
-    const execution = profile.execution ?? profile.capabilities._tag;
-    const expectedDialect = provider._tag === "Postgres" ? "Postgres" : "Sqlite";
-    if (profile.dialect._tag !== expectedDialect) {
+    const expectedDialect = providerDialect(profile.provider);
+    if (profile.dialect !== expectedDialect) {
       return yield* Effect.fail(
         new InvalidDefinition({
           subject: "provider profile",
-          reason: `${provider._tag} requires the ${expectedDialect} SQL dialect`,
+          reason: `${profile.provider} requires the ${expectedDialect} SQL dialect`,
         }),
       );
     }
-    if (execution !== profile.capabilities._tag) {
-      return yield* Effect.fail(
-        new InvalidDefinition({
-          subject: "provider profile",
-          reason: `execution ${execution} does not match capability ${profile.capabilities._tag}`,
-        }),
-      );
-    }
-    if (provider._tag === "D1" && profile.capabilities._tag !== "AtomicBatch") {
+    if (profile.provider === "D1" && profile.capabilities._tag !== "AtomicBatch") {
       return yield* Effect.fail(
         new UnsupportedCapability({
           dialect: "d1",
@@ -147,24 +116,22 @@ export const makeProviderProfile = (
         }),
       );
     }
-
-    if (provider._tag !== "D1" && profile.capabilities._tag === "AtomicBatch") {
+    if (profile.provider !== "D1" && profile.capabilities._tag === "AtomicBatch") {
       return yield* Effect.fail(
         new UnsupportedCapability({
-          dialect: dialectName(profile.dialect),
+          dialect: profile.dialect,
           capability: "atomic-batch-only execution profile",
         }),
       );
     }
 
-    return { ...profile, provider, execution };
+    return profile;
   });
 
 /** The Bun SQLite profile used by the first runtime tracer. */
 export const BunSqliteProfile: ProviderProfile = {
-  provider: { _tag: "BunSqlite" },
-  dialect: { _tag: "Sqlite" },
-  execution: "Transactional",
+  provider: "BunSqlite",
+  dialect: "sqlite",
   capabilities: {
     _tag: "Transactional",
     supportsTransactions: true,
@@ -176,9 +143,8 @@ export const BunSqliteProfile: ProviderProfile = {
 
 /** A libSQL profile over a host-provided libSQL client. */
 export const LibsqlProfile: ProviderProfile = {
-  provider: { _tag: "Libsql" },
-  dialect: { _tag: "Sqlite" },
-  execution: "Transactional",
+  provider: "Libsql",
+  dialect: "sqlite",
   capabilities: {
     _tag: "Transactional",
     supportsTransactions: true,
@@ -190,9 +156,8 @@ export const LibsqlProfile: ProviderProfile = {
 
 /** A PostgreSQL profile for shared logical migration histories. */
 export const PostgresProfile: ProviderProfile = {
-  provider: { _tag: "Postgres" },
-  dialect: { _tag: "Postgres" },
-  execution: "Transactional",
+  provider: "Postgres",
+  dialect: "postgres",
   capabilities: {
     _tag: "Transactional",
     supportsTransactions: true,
@@ -204,16 +169,19 @@ export const PostgresProfile: ProviderProfile = {
 
 /** The bounded static-batch profile established by the D1 research probe. */
 export const D1Profile: ProviderProfile = {
-  provider: { _tag: "D1" },
-  dialect: { _tag: "Sqlite" },
-  execution: "AtomicBatch",
+  provider: "D1",
+  dialect: "sqlite",
   capabilities: {
     _tag: "AtomicBatch",
     supportsTransactions: false,
     supportsSavepoints: false,
     supportsStreaming: false,
     supportsEffectMigrations: false,
-    maxStatements: 2,
+    // Cloudflare documents per-statement limits for `db.batch` but no batch
+    // statement count, so this is CapsuleDB's own bound rather than an invented
+    // provider maximum. It leaves room for the ledger claim plus a declared
+    // table and its indexes in one atomic batch.
+    maxStatements: 16,
     maxSqlStatementBytes: 100_000,
     maxBoundParameters: 100,
   },
@@ -234,9 +202,8 @@ export const providerProfiles = Object.freeze([
  */
 export const providerCapabilityMatrix = Object.freeze(
   providerProfiles.map((profile) => ({
-    provider: profile.provider._tag,
-    dialect: profile.dialect._tag,
-    execution: profile.execution,
+    provider: profile.provider,
+    dialect: profile.dialect,
     ...profile.capabilities,
   })),
 );

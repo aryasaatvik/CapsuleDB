@@ -7,15 +7,14 @@ describe("provider capability matrix", () => {
     assert.deepStrictEqual(
       providerCapabilityMatrix,
       providerProfiles.map((profile) => ({
-        provider: profile.provider._tag,
-        dialect: profile.dialect._tag,
-        execution: profile.execution,
+        provider: profile.provider,
+        dialect: profile.dialect,
         ...profile.capabilities,
       })),
     );
     assert.deepStrictEqual(
-      providerProfiles.map((profile) => profile.dialect._tag),
-      ["Sqlite", "Sqlite", "Postgres", "Sqlite"],
+      providerProfiles.map((profile) => profile.dialect),
+      ["sqlite", "sqlite", "postgres", "sqlite"],
     );
   });
 
@@ -26,7 +25,7 @@ describe("provider capability matrix", () => {
       supportsSavepoints: false,
       supportsStreaming: false,
       supportsEffectMigrations: false,
-      maxStatements: 2,
+      maxStatements: 16,
       maxSqlStatementBytes: 100_000,
       maxBoundParameters: 100,
     });

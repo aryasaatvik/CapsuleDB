@@ -4,9 +4,8 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 import type * as Statement from "effect/unstable/sql/Statement";
 
 import { InvalidDefinition, ProviderMismatch } from "../Error.ts";
-import type { MigrationBody } from "../Migration.ts";
+import type { Operation } from "../Migration.ts";
 import type { ProviderProfile } from "../Provider.ts";
-import { LEDGER_TABLE } from "./transactional-migrator.ts";
 
 /** The narrow D1 runtime capability consumed by CapsuleDB. */
 export interface D1BatchClient extends SqlClient.SqlClient {
@@ -23,7 +22,8 @@ export interface D1Migration {
   readonly name: string;
   readonly checksum: string;
   readonly provider: string;
-  readonly body: MigrationBody;
+  readonly operations: ReadonlyArray<Operation>;
+  readonly ledgerTable: string;
 }
 
 const isBatchClient = (sql: SqlClient.SqlClient): sql is D1BatchClient =>
@@ -52,8 +52,9 @@ export const compileD1Migration = (
         new ProviderMismatch({ dialect: "d1", mode: "missing atomic batch client" }),
       );
     }
-    if (options.body._tag !== "Sql") {
-      return yield* Effect.fail(new ProviderMismatch({ dialect: "d1", mode: options.body._tag }));
+    const dynamic = options.operations.find((operation) => operation._tag !== "Sql");
+    if (dynamic !== undefined) {
+      return yield* Effect.fail(new ProviderMismatch({ dialect: "d1", mode: dynamic._tag }));
     }
 
     const capabilities = options.profile.capabilities;
@@ -62,11 +63,15 @@ export const compileD1Migration = (
     }
 
     const statements: Array<Statement.Statement<unknown>> = [
-      options.sql`INSERT INTO ${options.sql(LEDGER_TABLE)}
+      options.sql`INSERT INTO ${options.sql(options.ledgerTable)}
         (capsule_id, migration_id, name, checksum, applied_at, provider)
         VALUES (${options.capsuleId}, ${options.migrationId}, ${options.name},
           ${options.checksum}, ${new Date().toISOString()}, ${options.provider})`,
-      ...options.body.statements.map((statement) => options.sql.unsafe(statement)),
+      ...options.operations.flatMap((operation) =>
+        operation._tag === "Sql"
+          ? operation.statements.map((statement) => options.sql.unsafe(statement))
+          : [],
+      ),
     ];
 
     if (statements.length > capabilities.maxStatements) {

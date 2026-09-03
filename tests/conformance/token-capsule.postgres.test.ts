@@ -1,10 +1,10 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
-import { makeCapsule } from "../../src/Capsule.ts";
-import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
+import * as Capsule from "../../src/Capsule.ts";
+import * as Migration from "../../src/Migration.ts";
 import { profile as postgresProfile } from "../../src/Pg.ts";
-import { makeRegistry, plan, prepare, status } from "../../src/Registry.ts";
+import * as Registry from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import {
   OneTimeTokens,
@@ -20,14 +20,14 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
         Effect.gen(function* () {
           yield* Effect.scoped(
             Effect.gen(function* () {
-              const capsule = yield* referenceTokenCapsule;
-              const registry = yield* makeRegistry({
+              const capsule = referenceTokenCapsule;
+              const registry = {
                 provider: postgresProfile,
                 capsules: [capsule],
-              });
-              const receipt = yield* prepare(registry);
+              };
+              const receipt = yield* Registry.prepare(registry);
               assert.strictEqual(receipt.provider, "postgres");
-              assert.strictEqual((yield* status(registry))._tag, "Ready");
+              assert.strictEqual((yield* Registry.status(registry))._tag, "Ready");
 
               const service = yield* Effect.service(OneTimeTokens);
               const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
@@ -50,24 +50,23 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
     () =>
       withPostgres((client) =>
         Effect.gen(function* () {
-          const capsule = yield* referenceTokenCapsule;
-          const registry = yield* makeRegistry({
+          const capsule = referenceTokenCapsule;
+          const registry = {
             provider: postgresProfile,
             capsules: [capsule],
-          });
-          const receipt = yield* prepare(registry);
+          };
+          const receipt = yield* Registry.prepare(registry);
           yield* client`UPDATE "capsuledb_registry_ledger"
             SET migration_id = 99, provider = 'sqlite'
             WHERE capsule_id = 'reference.tokens' AND migration_id = 1`;
 
-          const databasePlan = yield* plan(registry);
-          assert.strictEqual(databasePlan.state._tag, "Divergent");
-          if (databasePlan.state._tag === "Divergent") {
-            assert.strictEqual(databasePlan.state.reason, "provider-stamped ledger mismatch");
+          const readiness = yield* Registry.status(registry);
+          assert.strictEqual(readiness._tag, "Drift");
+          if (readiness._tag === "Drift") {
+            assert.strictEqual(readiness.reason.includes("stamped for provider sqlite"), true);
           }
-          assert.strictEqual((yield* status(registry))._tag, "Stale");
 
-          const failure = yield* prepare(registry).pipe(Effect.flip);
+          const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
           assert.strictEqual(failure._tag, "ProviderMismatch");
           assert.deepStrictEqual(
             yield* client<{ readonly fingerprint: string; readonly provider: string }>`SELECT
@@ -90,27 +89,29 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
     () =>
       withPostgres((client) =>
         Effect.gen(function* () {
-          const migration = yield* makeMigration({
+          const migration = Migration.make({
             id: 1,
             name: "failing-postgres-migration",
             risk: "additive",
-            providers: {
-              Postgres: sqlMigrationBody([
-                'CREATE TABLE "postgres_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
-                "THIS IS NOT VALID SQL",
-              ]),
-            },
+            steps: [
+              Migration.sql({
+                postgres: [
+                  'CREATE TABLE "postgres_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
+                  "THIS IS NOT VALID SQL",
+                ],
+              }),
+            ],
           });
-          const capsule = yield* makeCapsule({
+          const capsule = Capsule.make({
             id: "postgres.failure",
             migrations: [migration],
             layer: Layer.empty,
           });
-          const registry = yield* makeRegistry({
+          const registry = {
             provider: postgresProfile,
             capsules: [capsule],
-          });
-          const failure = yield* prepare(registry).pipe(Effect.flip);
+          };
+          const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
           assert.strictEqual(failure._tag, "SqlError");
 
           assert.deepStrictEqual(
@@ -131,28 +132,33 @@ describe("reference token capsule over a host-supplied PostgreSQL client", () =>
     () =>
       withPostgres((client) =>
         Effect.gen(function* () {
-          const migration = yield* makeMigration({
+          const migration = Migration.make({
             id: 1,
             name: "concurrent-postgres-migration",
             risk: "additive",
-            providers: {
-              Postgres: sqlMigrationBody([
-                'CREATE TABLE "postgres_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)',
-              ]),
-            },
+            steps: [
+              Migration.sql({
+                postgres: [
+                  'CREATE TABLE "postgres_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)',
+                ],
+              }),
+            ],
           });
-          const capsule = yield* makeCapsule({
+          const capsule = Capsule.make({
             id: "postgres.concurrent",
             migrations: [migration],
             layer: Layer.empty,
           });
-          const registry = yield* makeRegistry({
+          const registry = {
             provider: postgresProfile,
             capsules: [capsule],
-          });
-          const receipts = yield* Effect.all([prepare(registry), prepare(registry)], {
-            concurrency: "unbounded",
-          });
+          };
+          const receipts = yield* Effect.all(
+            [Registry.prepare(registry), Registry.prepare(registry)],
+            {
+              concurrency: "unbounded",
+            },
+          );
           assert.deepStrictEqual(receipts[0], receipts[1]);
           assert.deepStrictEqual(
             yield* client<{ readonly count: number }>`SELECT COUNT(*)::integer AS count

@@ -1,27 +1,23 @@
-import { Effect, Layer } from "effect";
+import { Layer } from "effect";
 
-import { makeCapsule, type Capsule } from "../../src/Capsule.ts";
-import { makeMigration, sqlMigrationBody, type Migration } from "../../src/Migration.ts";
+import * as Capsule from "../../src/Capsule.ts";
+import * as Migration from "../../src/Migration.ts";
 
+/** One additive migration whose raw body is identical on every dialect. */
 export const makeFixtureMigration = (
   id: number,
   name: string,
   source: string,
-): Effect.Effect<Migration, never> =>
-  makeMigration({
+): Migration.Migration =>
+  Migration.make({
     id,
     name,
     risk: "additive",
-    providers: {
-      Sqlite: sqlMigrationBody([source]),
-      Libsql: sqlMigrationBody([source]),
-      Postgres: sqlMigrationBody([source]),
-      D1: sqlMigrationBody([source]),
-    },
-  }).pipe(Effect.orDie);
+    steps: [Migration.sql({ postgres: [source], sqlite: [source] })],
+  });
 
+/** A capsule with no service, used wherever only migration behavior matters. */
 export const makeFixtureCapsule = (
-  migrations: ReadonlyArray<Migration>,
+  migrations: ReadonlyArray<Migration.Migration>,
   id = "reference.tokens",
-): Effect.Effect<Capsule<never, unknown, unknown>, never> =>
-  makeCapsule({ id, migrations, layer: Layer.empty }).pipe(Effect.orDie);
+): Capsule.Capsule<never, never, never> => Capsule.make({ id, migrations, layer: Layer.empty });

@@ -12,54 +12,42 @@ const execFileAsync = promisify(execFile);
 const effectVersion = "4.0.0-rc.112";
 
 const fixtureModule = `
-import { Context, Effect, Layer } from "effect";
-import { makeCapsule, makeMigration, sqlMigrationBody } from "capsuledb";
+import { Context, Layer } from "effect";
+import { Capsule, Migration } from "capsuledb";
 
 export const ReferenceService = Context.Service("packed/ReferenceService");
 
-const migration = await Effect.runPromise(
-  makeMigration({
-    id: 1,
-    name: "create-packed-table",
-    risk: "additive",
-    providers: {
-      D1: sqlMigrationBody(['CREATE TABLE "packed_table" (value TEXT NOT NULL)']),
-    },
-  }),
-);
-
-export const capsule = await Effect.runPromise(
-  makeCapsule({
-    id: "packed.reference",
-    migrations: [migration],
-    layer: Layer.succeed(ReferenceService, { value: "packed-service" }),
-  }),
-);
+export const capsule = Capsule.make({
+  id: "packed.reference",
+  migrations: [
+    Migration.make({
+      id: 1,
+      name: "create-packed-table",
+      risk: "additive",
+      steps: [Migration.sql({ sqlite: ['CREATE TABLE "packed_table" (value TEXT NOT NULL)'] })],
+    }),
+  ],
+  layer: Layer.succeed(ReferenceService, { value: "packed-service" }),
+});
 `;
 
 const consumerModule = `
 import { Effect } from "effect";
-import {
-  D1,
-  buildD1Artifact,
-  buildManifest,
-  makeRegistry,
-  manifestPlan,
-  VERSION,
-} from "capsuledb";
+import { D1, D1Artifact, Manifest, Registry, VERSION } from "capsuledb";
 import { capsule, ReferenceService } from "./capsule.mjs";
 
-const manifest = await Effect.runPromise(buildManifest({ capsules: [capsule] }));
-const registry = await Effect.runPromise(makeRegistry({ provider: D1.profile, capsules: [capsule] }));
-const registryPlan = await Effect.runPromise(manifestPlan(registry));
-const artifact = await Effect.runPromise(buildD1Artifact(manifest));
+const manifest = await Effect.runPromise(Manifest.buildManifest({ capsules: [capsule] }));
+const registryManifest = await Effect.runPromise(
+  Registry.manifest({ provider: D1.profile, capsules: [capsule] }),
+);
+const artifact = await Effect.runPromise(D1Artifact.buildD1Artifact(manifest));
 const service = await Effect.runPromise(
   Effect.service(ReferenceService).pipe(Effect.provide(capsule.layer)),
 );
 
 if (VERSION !== "${packageJson.version}") throw new Error("package version mismatch");
-if (D1.profile.provider._tag !== "D1") throw new Error("D1 profile mismatch");
-if (registryPlan.manifest.fingerprint !== manifest.fingerprint) throw new Error("manifest mismatch");
+if (D1.profile.provider !== "D1") throw new Error("D1 profile mismatch");
+if (registryManifest.fingerprint !== manifest.fingerprint) throw new Error("manifest mismatch");
 if (artifact.files.length !== 1) throw new Error("artifact projection mismatch");
 if (service.value !== "packed-service") throw new Error("opaque service mismatch");
 console.log(JSON.stringify({ version: VERSION, fingerprint: manifest.fingerprint }));
@@ -70,7 +58,7 @@ import { profile as d1Profile } from "./capsuledb-d1-bundle.mjs";
 
 export default {
   fetch() {
-    return Response.json({ provider: d1Profile.provider._tag });
+    return Response.json({ provider: d1Profile.provider });
   },
 };
 `;

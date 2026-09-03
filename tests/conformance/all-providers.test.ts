@@ -8,7 +8,7 @@ describe("shared CapsuleDB provider conformance", () => {
     it.effect(
       `${provider.name} satisfies the shared lifecycle and token contract`,
       () => provider.withClient((client) => runProviderSuite(provider, client)),
-      provider.profile.dialect._tag === "Postgres" ? 60_000 : 30_000,
+      provider.profile.dialect === "postgres" ? 60_000 : 30_000,
     );
   }
 });

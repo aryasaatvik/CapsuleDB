@@ -7,10 +7,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { makeCapsule } from "../../src/Capsule.ts";
-import { makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
+import * as Capsule from "../../src/Capsule.ts";
+import * as Migration from "../../src/Migration.ts";
 import { profile as libsqlProfile } from "../../src/Libsql.ts";
-import { makeRegistry, prepare, status } from "../../src/Registry.ts";
+import * as Registry from "../../src/Registry.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import {
   OneTimeTokens,
@@ -49,14 +49,14 @@ describe("reference token capsule over a host-supplied libSQL client", () => {
         yield* withLibsql(
           client,
           Effect.gen(function* () {
-            const capsule = yield* referenceTokenCapsule;
-            const registry = yield* makeRegistry({
+            const capsule = referenceTokenCapsule;
+            const registry = {
               provider: libsqlProfile,
               capsules: [capsule],
-            });
-            const receipt = yield* prepare(registry);
+            };
+            const receipt = yield* Registry.prepare(registry);
             assert.strictEqual(receipt.provider, "libsql");
-            assert.strictEqual((yield* status(registry))._tag, "Ready");
+            assert.strictEqual((yield* Registry.status(registry))._tag, "Ready");
 
             const service = yield* Effect.service(OneTimeTokens);
             const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
@@ -82,27 +82,29 @@ describe("reference token capsule over a host-supplied libSQL client", () => {
         yield* withLibsql(
           client,
           Effect.gen(function* () {
-            const migration = yield* makeMigration({
+            const migration = Migration.make({
               id: 1,
               name: "failing-libsql-migration",
               risk: "additive",
-              providers: {
-                Libsql: sqlMigrationBody([
-                  'CREATE TABLE "libsql_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
-                  "THIS IS NOT VALID SQL",
-                ]),
-              },
+              steps: [
+                Migration.sql({
+                  sqlite: [
+                    'CREATE TABLE "libsql_failure_marker" (id TEXT PRIMARY KEY NOT NULL)',
+                    "THIS IS NOT VALID SQL",
+                  ],
+                }),
+              ],
             });
-            const capsule = yield* makeCapsule({
+            const capsule = Capsule.make({
               id: "libsql.failure",
               migrations: [migration],
               layer: Layer.empty,
             });
-            const registry = yield* makeRegistry({
+            const registry = {
               provider: libsqlProfile,
               capsules: [capsule],
-            });
-            const failure = yield* prepare(registry).pipe(Effect.flip);
+            };
+            const failure = yield* Registry.prepare(registry).pipe(Effect.flip);
             assert.strictEqual(failure._tag, "SqlError");
 
             const sql = yield* Effect.service(SqlClient.SqlClient);
@@ -159,28 +161,31 @@ describe("reference token capsule over a host-supplied libSQL client", () => {
       withLibsql(
         client,
         Effect.gen(function* () {
-          const migration = yield* makeMigration({
+          const migration = Migration.make({
             id: 1,
             name: "concurrent-libsql-migration",
             risk: "additive",
-            providers: {
-              Libsql: sqlMigrationBody([
-                'CREATE TABLE "libsql_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)',
-              ]),
-            },
+            steps: [
+              Migration.sql({
+                sqlite: ['CREATE TABLE "libsql_concurrent_probe" (id TEXT PRIMARY KEY NOT NULL)'],
+              }),
+            ],
           });
-          const capsule = yield* makeCapsule({
+          const capsule = Capsule.make({
             id: "libsql.concurrent",
             migrations: [migration],
             layer: Layer.empty,
           });
-          const registry = yield* makeRegistry({
+          const registry = {
             provider: libsqlProfile,
             capsules: [capsule],
-          });
-          const receipts = yield* Effect.all([prepare(registry), prepare(registry)], {
-            concurrency: "unbounded",
-          });
+          };
+          const receipts = yield* Effect.all(
+            [Registry.prepare(registry), Registry.prepare(registry)],
+            {
+              concurrency: "unbounded",
+            },
+          );
           assert.deepStrictEqual(receipts[0], receipts[1]);
           const sql = yield* Effect.service(SqlClient.SqlClient);
           assert.deepStrictEqual(

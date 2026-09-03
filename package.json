@@ -46,25 +46,29 @@
       "types": "./dist/D1Artifact.d.mts",
       "import": "./dist/D1Artifact.mjs"
     },
+    "./Dialect": {
+      "types": "./dist/Dialect.d.mts",
+      "import": "./dist/Dialect.mjs"
+    },
     "./Error": {
       "types": "./dist/Error.d.mts",
       "import": "./dist/Error.mjs"
     },
-    "./Migration": {
-      "types": "./dist/Migration.d.mts",
-      "import": "./dist/Migration.mjs"
+    "./Libsql": {
+      "types": "./dist/Libsql.d.mts",
+      "import": "./dist/Libsql.mjs"
     },
     "./Manifest": {
       "types": "./dist/Manifest.d.mts",
       "import": "./dist/Manifest.mjs"
     },
+    "./Migration": {
+      "types": "./dist/Migration.d.mts",
+      "import": "./dist/Migration.mjs"
+    },
     "./Pg": {
       "types": "./dist/Pg.d.mts",
       "import": "./dist/Pg.mjs"
-    },
-    "./Libsql": {
-      "types": "./dist/Libsql.d.mts",
-      "import": "./dist/Libsql.mjs"
     },
     "./Provider": {
       "types": "./dist/Provider.d.mts",
@@ -78,9 +82,17 @@
       "types": "./dist/Registry.d.mts",
       "import": "./dist/Registry.mjs"
     },
+    "./Schema": {
+      "types": "./dist/Schema.d.mts",
+      "import": "./dist/Schema.mjs"
+    },
     "./SqliteBun": {
       "types": "./dist/SqliteBun.d.mts",
       "import": "./dist/SqliteBun.mjs"
+    },
+    "./Testing": {
+      "types": "./dist/Testing.d.mts",
+      "import": "./dist/Testing.mjs"
     },
     "./package.json": "./package.json"
   },
@@ -123,7 +135,17 @@
     "vitest": "4.1.11"
   },
   "peerDependencies": {
+    "@effect/sql-libsql": ">=4.0.0-rc.111 <5",
+    "@effect/sql-sqlite-bun": ">=4.0.0-rc.111 <5",
     "effect": ">=4.0.0-rc.111 <5"
+  },
+  "peerDependenciesMeta": {
+    "@effect/sql-libsql": {
+      "optional": true
+    },
+    "@effect/sql-sqlite-bun": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=24.10.0"

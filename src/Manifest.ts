@@ -13,15 +13,10 @@ import {
   MissingProviderMigration,
   NamespaceCollision,
   ProviderMismatch,
-  type CapsuleError,
 } from "./Error.ts";
-import {
-  resolveMigrationImplementation,
-  type Migration,
-  type MigrationBody,
-  type MigrationImplementations,
-} from "./Migration.ts";
-import { providerDialectTags, type ProviderProfile } from "./Provider.ts";
+import { resolve, supportedDialects, type Migration, type Operation } from "./Migration.ts";
+import type { Dialect } from "./Dialect.ts";
+import type { ProviderProfile } from "./Provider.ts";
 import { sha256 } from "./internal/checksum.ts";
 
 /** A lowercase SHA-256 checksum of canonical authored migration metadata. */
@@ -32,29 +27,29 @@ export const Checksum = Schema.String.pipe(
 
 export type Checksum = typeof Checksum.Type;
 
-const ManifestDialect = Schema.Union([
-  Schema.Literal("BunSqlite"),
-  Schema.Literal("Sqlite"),
-  Schema.Literal("Libsql"),
-  Schema.Literal("Postgres"),
-  Schema.Literal("D1"),
-]);
+const ManifestDialect = Schema.Union([Schema.Literal("postgres"), Schema.Literal("sqlite")]);
 
-/** Runtime-readable provider body metadata; Effect functions are omitted. */
-export const ManifestProvider = Schema.TaggedUnion({
+/** Runtime-readable migration work; Effect bodies keep only their revision. */
+export const ManifestOperation = Schema.TaggedUnion({
   Sql: {
-    dialect: ManifestDialect,
     statements: Schema.Array(Schema.String),
   },
   Effect: {
-    dialect: ManifestDialect,
     revision: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(256))),
   },
 });
 
-export type ManifestProvider = typeof ManifestProvider.Type;
+export type ManifestOperation = typeof ManifestOperation.Type;
 
-/** One logical migration's checksum and provider body metadata. */
+/** The ordered work one dialect applies for one logical migration. */
+export const ManifestBody = Schema.Struct({
+  dialect: ManifestDialect,
+  operations: Schema.Array(ManifestOperation),
+});
+
+export type ManifestBody = typeof ManifestBody.Type;
+
+/** One logical migration's checksum and per-dialect bodies. */
 export const ManifestMigration = Schema.Struct({
   id: Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)), Schema.brand("MigrationId")),
   name: Schema.String.pipe(
@@ -67,7 +62,7 @@ export const ManifestMigration = Schema.Struct({
   ),
   risk: Schema.Union([Schema.Literal("additive"), Schema.Literal("destructive")]),
   checksum: Checksum,
-  providers: Schema.Array(ManifestProvider),
+  bodies: Schema.Array(ManifestBody),
 });
 
 export type ManifestMigration = typeof ManifestMigration.Type;
@@ -100,7 +95,6 @@ export interface ManifestValidationOptions extends ManifestBuildOptions {
 }
 
 export type ManifestError =
-  | CapsuleError
   | InvalidDefinition
   | DuplicateCapsule
   | NamespaceCollision
@@ -109,71 +103,51 @@ export type ManifestError =
   | MigrationHistoryReordered
   | MigrationNameDrift
   | MigrationChecksumDrift
+  | ManifestFingerprintDrift
   | MissingProviderMigration
   | ProviderMismatch;
 
-const sortedProviderTags = (): ReadonlyArray<(typeof providerDialectTags)[number]> =>
-  [...providerDialectTags].sort();
+const manifestOperation = (operation: Operation): ManifestOperation =>
+  operation._tag === "Sql"
+    ? { _tag: "Sql", statements: [...operation.statements] }
+    : { _tag: "Effect", revision: operation.revision };
 
-const manifestBody = (
-  dialect: (typeof providerDialectTags)[number],
-  body: MigrationBody,
-): ManifestProvider =>
-  body._tag === "Sql"
-    ? {
-        _tag: "Sql",
-        dialect,
-        statements: [...body.statements],
-      }
-    : {
-        _tag: "Effect",
-        dialect,
-        revision: body.revision,
-      };
+const manifestBodies = (migration: Migration): ReadonlyArray<ManifestBody> =>
+  supportedDialects(migration)
+    .map((dialect) => ({
+      dialect,
+      operations: (resolve(migration, dialect) ?? []).map(manifestOperation),
+    }))
+    .filter((body) => body.operations.length > 0);
 
-const manifestBodies = (providers: MigrationImplementations): ReadonlyArray<ManifestProvider> => {
-  const result: Array<ManifestProvider> = [];
-  for (const dialect of sortedProviderTags()) {
-    const body = providers[dialect];
-    if (body !== undefined) result.push(manifestBody(dialect, body));
-  }
-  return result;
-};
+const canonicalOperation = (operation: ManifestOperation): Readonly<Record<string, unknown>> =>
+  operation._tag === "Sql"
+    ? { mode: operation._tag, statements: operation.statements }
+    : { mode: operation._tag, revision: operation.revision };
 
-const canonicalBody = (body: ManifestProvider): Readonly<Record<string, unknown>> =>
-  body._tag === "Sql"
-    ? {
-        mode: body._tag,
-        dialect: body.dialect,
-        statements: body.statements,
-      }
-    : {
-        mode: body._tag,
-        dialect: body.dialect,
-        revision: body.revision,
-      };
+const canonicalBodies = (bodies: ReadonlyArray<ManifestBody>) =>
+  [...bodies]
+    .sort((left, right) => left.dialect.localeCompare(right.dialect))
+    .map((body) => ({
+      dialect: body.dialect,
+      operations: body.operations.map(canonicalOperation),
+    }));
 
 const canonicalMigration = (
   capsuleId: string,
-  migration: Migration,
-  providers: ReadonlyArray<ManifestProvider>,
+  migration: Pick<Migration, "id" | "name" | "risk">,
+  bodies: ReadonlyArray<ManifestBody>,
 ) =>
   JSON.stringify({
     capsuleId,
     migrationId: migration.id,
     name: migration.name,
     risk: migration.risk,
-    providers: providers.map(canonicalBody),
+    bodies: canonicalBodies(bodies),
   });
 
 const canonicalManifestMigration = (capsuleId: string, migration: ManifestMigration): string =>
-  JSON.stringify({
-    capsuleId,
-    migrationId: migration.id,
-    name: migration.name,
-    risk: migration.risk,
-    providers: migration.providers.map(canonicalBody),
-  });
+  canonicalMigration(capsuleId, migration, migration.bodies);
 
 const canonicalManifest = (version: 1, capsules: ReadonlyArray<ManifestCapsule>): string =>
   JSON.stringify({
@@ -186,19 +160,7 @@ const canonicalManifest = (version: 1, capsules: ReadonlyArray<ManifestCapsule>)
         name: migration.name,
         risk: migration.risk,
         checksum: migration.checksum,
-        providers: migration.providers.map((provider) =>
-          provider._tag === "Sql"
-            ? {
-                mode: provider._tag,
-                dialect: provider.dialect,
-                statements: provider.statements,
-              }
-            : {
-                mode: provider._tag,
-                dialect: provider.dialect,
-                revision: provider.revision,
-              },
-        ),
+        bodies: canonicalBodies(migration.bodies),
       })),
     })),
   });
@@ -244,24 +206,13 @@ const validateCapsuleMigrations = (
     }
 
     for (const migration of capsule.migrations) {
-      const providers = manifestBodies(migration.providers);
-      if (providers.length === 0) {
+      if (manifestBodies(migration).length === 0) {
         return yield* Effect.fail(
           new InvalidDefinition({
             subject: `migration ${migration.id}`,
-            reason: "at least one provider implementation is required",
+            reason: "no dialect can apply every step of this migration",
           }),
         );
-      }
-      for (const body of providers) {
-        if (body._tag === "Sql" && body.statements.length === 0) {
-          return yield* Effect.fail(
-            new InvalidDefinition({
-              subject: `migration ${migration.id} statements`,
-              reason: "SQL statements must not be empty",
-            }),
-          );
-        }
       }
     }
   });
@@ -310,15 +261,15 @@ export const buildManifest = (
       yield* validateCapsuleMigrations(capsule);
       const migrations: Array<ManifestMigration> = [];
       for (const migration of capsule.migrations) {
-        const providers = manifestBodies(migration.providers);
-        const checksum = yield* sha256(canonicalMigration(capsule.id, migration, providers));
+        const bodies = manifestBodies(migration);
+        const checksum = yield* sha256(canonicalMigration(capsule.id, migration, bodies));
         migrations.push(
           yield* decodeManifestMigration({
             id: migration.id,
             name: migration.name,
             risk: migration.risk,
             checksum,
-            providers,
+            bodies,
           }),
         );
       }
@@ -395,29 +346,25 @@ const validatePublishedStructure = (manifest: Manifest): Effect.Effect<void, Man
         }
         previousId = migration.id;
 
-        if (migration.providers.length === 0) {
+        if (migration.bodies.length === 0) {
           return yield* Effect.fail(
             new InvalidDefinition({
               subject: `manifest migration ${migration.id}`,
-              reason: "at least one provider implementation is required",
+              reason: "at least one dialect body is required",
             }),
           );
         }
-        for (
-          let providerIndex = 0;
-          providerIndex < migration.providers.length;
-          providerIndex += 1
-        ) {
-          const provider = migration.providers[providerIndex];
-          if (provider === undefined) continue;
+        for (let bodyIndex = 0; bodyIndex < migration.bodies.length; bodyIndex += 1) {
+          const body = migration.bodies[bodyIndex];
+          if (body === undefined) continue;
           if (
-            migration.providers.findIndex((candidate) => candidate.dialect === provider.dialect) !==
-            providerIndex
+            migration.bodies.findIndex((candidate) => candidate.dialect === body.dialect) !==
+            bodyIndex
           ) {
             return yield* Effect.fail(
               new InvalidDefinition({
-                subject: `manifest migration ${migration.id} providers`,
-                reason: `duplicate provider ${provider.dialect}`,
+                subject: `manifest migration ${migration.id} bodies`,
+                reason: `duplicate dialect ${body.dialect}`,
               }),
             );
           }
@@ -476,26 +423,30 @@ const validateProviderBodies = (
   Effect.gen(function* () {
     for (const capsule of capsules) {
       for (const migration of capsule.migrations) {
-        const body = resolveMigrationImplementation(migration, provider);
-        if (body === undefined) {
+        const operations = resolve(migration, provider.dialect);
+        if (operations === undefined) {
           return yield* Effect.fail(
             new MissingProviderMigration({
               migrationId: migration.id,
-              dialect: provider.dialect._tag,
+              dialect: provider.dialect,
             }),
           );
         }
-        if (provider.capabilities._tag === "AtomicBatch" && body._tag !== "Sql") {
+        if (
+          provider.capabilities._tag === "AtomicBatch" &&
+          operations.some((operation) => operation._tag !== "Sql")
+        ) {
           return yield* Effect.fail(
-            new ProviderMismatch({
-              dialect: provider.dialect._tag,
-              mode: body._tag,
-            }),
+            new ProviderMismatch({ dialect: provider.dialect, mode: "Effect" }),
           );
         }
       }
     }
   });
+
+/** The manifest body a dialect applies for one logical migration. */
+export const bodyFor = (migration: ManifestMigration, dialect: Dialect): ManifestBody | undefined =>
+  migration.bodies.find((candidate) => candidate.dialect === dialect);
 
 /**
  * Validate an existing runtime manifest against a new explicit history.

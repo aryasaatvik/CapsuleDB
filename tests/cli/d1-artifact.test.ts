@@ -6,8 +6,8 @@ import { join } from "node:path";
 
 import { buildD1Artifact, renderD1ArtifactFile, validateD1Artifact } from "../../src/D1Artifact.ts";
 import { buildManifest } from "../../src/Manifest.ts";
-import { effectMigrationBody, makeMigration, sqlMigrationBody } from "../../src/Migration.ts";
-import { makeCapsule } from "../../src/Capsule.ts";
+import * as Migration from "../../src/Migration.ts";
+import * as Capsule from "../../src/Capsule.ts";
 import { D1Profile } from "../../src/Provider.ts";
 
 const makeStaticManifest = (migrationCount = 1) =>
@@ -16,17 +16,15 @@ const makeStaticManifest = (migrationCount = 1) =>
     for (let id = 1; id <= migrationCount; id += 1) {
       const tableName = `artifact_table_${id}`;
       migrations.push(
-        yield* makeMigration({
+        Migration.make({
           id,
           name: `create-artifact-table-${id}`,
           risk: "additive",
-          providers: {
-            D1: sqlMigrationBody([`CREATE TABLE "${tableName}" (id TEXT NOT NULL)`]),
-          },
+          steps: [Migration.sql({ sqlite: [`CREATE TABLE "${tableName}" (id TEXT NOT NULL)`] })],
         }),
       );
     }
-    const capsule = yield* makeCapsule({
+    const capsule = Capsule.make({
       id: "artifact.fixture",
       migrations,
       layer: Layer.empty,
@@ -78,13 +76,13 @@ describe("D1 artifact projection", () => {
 
   it.effect("rejects dynamic D1 bodies instead of serializing functions", () =>
     Effect.gen(function* () {
-      const migration = yield* makeMigration({
+      const migration = Migration.make({
         id: 1,
         name: "dynamic",
         risk: "additive",
-        providers: { D1: effectMigrationBody("dynamic", Effect.void) },
+        steps: [Migration.effect("dynamic", Effect.void)],
       });
-      const capsule = yield* makeCapsule({
+      const capsule = Capsule.make({
         id: "artifact.dynamic",
         migrations: [migration],
         layer: Layer.empty,
@@ -98,15 +96,19 @@ describe("D1 artifact projection", () => {
 
   it.effect("mirrors claim-first batch limits and keeps namespace paths injective", () =>
     Effect.gen(function* () {
-      const oversizedMigration = yield* makeMigration({
+      const oversizedMigration = Migration.make({
         id: 1,
-        name: "two-statements",
+        name: "over-batch-limit",
         risk: "additive",
-        providers: {
-          D1: sqlMigrationBody(["SELECT 1", "SELECT 2"]),
-        },
+        // One more body statement than the built-in D1 profile leaves room for
+        // once the ledger claim takes the first slot in the atomic batch.
+        steps: [
+          Migration.sql({
+            sqlite: Array.from({ length: 16 }, (_, index) => `SELECT ${index + 1}`),
+          }),
+        ],
       });
-      const oversizedCapsule = yield* makeCapsule({
+      const oversizedCapsule = Capsule.make({
         id: "artifact.oversized",
         migrations: [oversizedMigration],
         layer: Layer.empty,
@@ -115,24 +117,24 @@ describe("D1 artifact projection", () => {
       const oversizedFailure = yield* buildD1Artifact(oversizedManifest).pipe(Effect.flip);
       assert.strictEqual(oversizedFailure._tag, "InvalidDefinition");
 
-      const firstMigration = yield* makeMigration({
+      const firstMigration = Migration.make({
         id: 1,
         name: "same-migration",
         risk: "additive",
-        providers: { D1: sqlMigrationBody(["SELECT 1"]) },
+        steps: [Migration.sql({ sqlite: ["SELECT 1"] })],
       });
-      const secondMigration = yield* makeMigration({
+      const secondMigration = Migration.make({
         id: 1,
         name: "same-migration",
         risk: "additive",
-        providers: { D1: sqlMigrationBody(["SELECT 2"]) },
+        steps: [Migration.sql({ sqlite: ["SELECT 2"] })],
       });
-      const firstCapsule = yield* makeCapsule({
+      const firstCapsule = Capsule.make({
         id: "a.b",
         migrations: [firstMigration],
         layer: Layer.empty,
       });
-      const secondCapsule = yield* makeCapsule({
+      const secondCapsule = Capsule.make({
         id: "a-b",
         migrations: [secondMigration],
         layer: Layer.empty,
