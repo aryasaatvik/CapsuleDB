@@ -1,13 +1,31 @@
 core:changelogs:
-  - content: "---\npackages:\n  group:public:\n    type: minor\n---\n\n### The first capsule\n\nThe first public release of CapsuleDB, providing Effect-native database capsules,\nappend-only migrations, and transactional PostgreSQL, Bun SQLite, and libSQL\nprovider support.\n"
-    filename: 2026-09-01-first-release.md
+  - content: "---\npackages:\n  capsuledb:\n    type: minor\n---\n\n### Deterministic manifests, optional D1 artifacts, and provider-stamped readiness\n\nThe manifest is deterministic, the static D1 artifact tooling is optional, and capsule authors and\nhost operators each get their own documentation. Registry readiness fails closed when an active\nmigration ledger row was stamped by a different provider.\n"
+    filename: quiet-capsules-migrate.md
+    v: 0.0.0
+  - content: "---\npackages:\n  capsuledb:\n    type: minor\n---\n\n### Declare tables once and render the DDL per dialect\n\n`Schema.table` plus the column constructors describe a capsule's tables, and\n`Migration.createTable`, `addColumn`, `createIndex`, and `dropTable` render them\ndeterministically for PostgreSQL and SQLite — the dialect that covers Bun SQLite,\nlibSQL, and Cloudflare D1. `Migration.sql` stays the escape hatch for\nengine-specific statements and `Migration.effect` for work that needs the host\nclient; one migration may mix all three. `capsule.tables` exposes the\ndeclaration, and `Schema.Row` infers the row type from it.\n\nBreaking: a migration takes `steps`, not a `providers` map keyed by provider or\ndialect tag, and bodies are keyed by dialect (`postgres` / `sqlite`) only.\n`Provider` and `Dialect` are string unions rather than tagged unions, and\n`ProviderProfile.execution` is gone because `capabilities._tag` already names the\nexecution model. The manifest records per-dialect `bodies` in place of\n`providers`. The built-in D1 profile now allows 16 statements per atomic batch\ninstead of 2; Cloudflare publishes no batch statement-count limit, and one\ndeclared table with indexes needs more than one slot.\n"
+    filename: declarative-schema.md
+    v: 0.0.0
+  - content: "---\npackages:\n  capsuledb:\n    type: minor\n---\n\n### Make capsule definitions pure values and boot every capsule from one Layer\n\n`Capsule.make` and `Migration.make` now return the value and throw\n`CapsuleDefinitionError` on an invalid definition, so a capsule is a module\nconstant instead of an Effect a host has to run first. `Registry.layer(options)`\nprepares pending migrations and then provides every registered capsule's\nservice with its merged service, failure, and requirement types.\n\nBreaking: the root export is namespace-only (`Capsule`, `Migration`, `Registry`,\n...); `makeCapsule`, `makeMigration`, `sqlMigrationBody`, `effectMigrationBody`,\n`makeRegistry`, `describe`, `migrationsOf`, and `assertRegistryReady` are gone.\n`RegistryPlanState`, `Readiness`, and `ReadinessReceipt` collapse into one\n`Readiness` union of `Ready`, `Pending`, and `Drift`.\n"
+    filename: pure-capsule-constructors.md
+    v: 0.0.0
+  - content: "---\npackages:\n  capsuledb:\n    type: minor\n---\n\n### Emit capsule SQL into a host's migration folder and assert readiness at boot\n\n`capsuledb emit --module --export --dialect postgres|sqlite --out <dir>` writes\nthe ledger DDL, one file per migration with its ledger row, and the readiness\nmetadata row. `capsuledb check` verifies that folder still matches the installed\nlibrary. `Registry.layer({ mode: \"assert\" })` then applies nothing and fails with\n`NotReady` unless the database already matches the registered history.\n\nFiles are numbered by CapsuleDB's own migration order rather than by wall clock,\nso the projection is byte-for-byte reproducible and `check` can compare it\ndirectly. `--provider` stamps a non-default SQLite provider identity and\n`--prefix` matches a prefixed registry.\n"
+    filename: emit-cli-and-assert-mode.md
+    v: 0.0.0
+  - content: "---\npackages:\n  capsuledb:\n    type: minor\n---\n\n### Checksum only the dialect body the host applies\n\nManifest v2 gives every dialect body its own checksum, and the ledger records\nwhich dialect a row's checksum is keyed to. Adding a SQLite body to a capsule\nalready deployed on PostgreSQL, or fixing another engine's SQL, no longer\ninvalidates a deployed host's ledger. `MigrationChecksumDrift` and\n`LedgerConflict` name the dialect that drifted.\n\nA ledger written by CapsuleDB 0.1 is upgraded in place on the first v2\npreparation: the runtime adds the `dialect` column and re-keys each row to the\nbody this host applies. It still fails closed when a row's capsule, migration ID,\nor name no longer matches the registered history.\n"
+    filename: per-dialect-checksums.md
+    v: 0.0.0
+  - content: "---\npackages:\n  capsuledb:\n    type: minor\n---\n\n### Prune the export surface and ship a conformance kit\n\n`capsuledb/Testing` exports the provider-neutral conformance suite this\nrepository runs against every provider, plus a `withSqlite` helper that opens a\nthrowaway in-memory database, so a capsule author gets a first signal without\ntestcontainers. `Registry.layer` and friends accept a `prefix` so two\nindependent registries can share one database.\n\nBreaking: `TokenNotFound`, `TokenAlreadyConsumed`, and `InvalidToken` were\nexample-only errors and now live in the reference example rather than the\nlibrary's `CapsuleError` union.\n\n`bun run docs:check` now verifies that every `capsuledb` subpath and symbol a\ndocumentation snippet names still exists, and `tests/artifact` asserts the packed\nroot surface is exactly one namespace per exported subpath.\n"
+    filename: export-surface-and-test-kit.md
     v: 0.0.0
 core:packages:
   - changelogIds:
-      - 2026-09-01-first-release.md
+      - quiet-capsules-migrate.md
+      - declarative-schema.md
+      - pure-capsule-constructors.md
+      - emit-cli-and-assert-mode.md
+      - per-dialect-checksums.md
+      - export-surface-and-test-kit.md
     id: npm:capsuledb
     updated: true
-npm:mark-latest:
-  - id: npm:capsuledb
 npm:packages:
   - id: npm:capsuledb
