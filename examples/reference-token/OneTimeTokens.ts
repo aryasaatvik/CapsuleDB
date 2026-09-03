@@ -3,7 +3,6 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError";
 import type * as Statement from "effect/unstable/sql/Statement";
 
-import { InvalidToken, TokenAlreadyConsumed, TokenNotFound } from "../../src/Error.ts";
 import { sha256 } from "../../src/internal/checksum.ts";
 
 const TOKEN_TABLE = "capsule_reference_2e_tokens";
@@ -42,6 +41,22 @@ export const AuditReceipt = Schema.Struct({
 });
 
 export type AuditReceipt = typeof AuditReceipt.Type;
+
+/** A supplied token does not exist or is not valid for this capsule. */
+export class TokenNotFound extends Schema.TaggedError<TokenNotFound>()("TokenNotFound", {
+  token: Schema.String,
+}) {}
+
+/** A token was already consumed and cannot be replayed. */
+export class TokenAlreadyConsumed extends Schema.TaggedError<TokenAlreadyConsumed>()(
+  "TokenAlreadyConsumed",
+  { token: Schema.String, consumedAt: Schema.String },
+) {}
+
+/** A supplied token was malformed at the domain boundary. */
+export class InvalidToken extends Schema.TaggedError<InvalidToken>()("InvalidToken", {
+  reason: Schema.String,
+}) {}
 
 /** Persistence failures are kept inside the reference capsule's domain boundary. */
 export class TokenPersistenceError extends Schema.TaggedError<TokenPersistenceError>()(

@@ -19,6 +19,7 @@ export default defineConfig({
     Registry: "src/Registry.ts",
     Schema: "src/Schema.ts",
     SqliteBun: "src/SqliteBun.ts",
+    Testing: "src/Testing.ts",
     cli: "src/cli.ts",
   },
   fixedExtension: true,

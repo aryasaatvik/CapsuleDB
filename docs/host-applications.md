@@ -68,6 +68,20 @@ The runtime checks every pending destructive migration before applying an
 earlier additive migration in that run. CapsuleDB does not decide whether a
 deployment is approved; the host supplies that policy.
 
+## Sharing a database between registries
+
+CapsuleDB owns two tables of its own. `prefix` renames them, so two independent
+registries — a second application, or a tenant-scoped deployment — can share one
+database:
+
+```ts
+Registry.layer({ provider: Pg.profile, capsules: [capsule], prefix: "tenant" });
+```
+
+The default is `capsuledb`. The prefix is part of the physical layout: changing
+it after a deployment hides the existing ledger and makes every applied
+migration look pending.
+
 ## Removal and re-registration
 
 Removing a capsule from the explicit registry does not drop its tables or

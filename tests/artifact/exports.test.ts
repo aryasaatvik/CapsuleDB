@@ -43,8 +43,23 @@ import { VERSION } from "capsuledb";
 import { profile as d1Profile } from "capsuledb/D1";
 import { profile as libsqlProfile } from "capsuledb/Libsql";
 import { profile as postgresProfile } from "capsuledb/Pg";
+import * as CapsuleDB from "capsuledb";
 import { D1, Libsql, Pg } from "capsuledb";
 import packageJson from "capsuledb/package.json" with { type: "json" };
+
+// Every declared subpath resolves, and the root namespace surface is exactly
+// one namespace per subpath plus VERSION - no flat or duplicated exports.
+const subpaths = Object.keys(packageJson.exports).filter(
+  (key) => key !== "." && key !== "./package.json",
+);
+for (const subpath of subpaths) {
+  await import("capsuledb" + subpath.slice(1));
+}
+const actualRoot = Object.keys(CapsuleDB).sort();
+const expectedRoot = ["VERSION", ...subpaths.map((subpath) => subpath.slice(2))].sort();
+if (JSON.stringify(actualRoot) !== JSON.stringify(expectedRoot)) {
+  throw new Error("Packed root surface drifted: " + JSON.stringify({ actualRoot, expectedRoot }));
+}
 
 if (VERSION !== packageJson.version || VERSION !== ${JSON.stringify(packageJson.version)}) {
   throw new Error("Packed public export does not match package metadata");

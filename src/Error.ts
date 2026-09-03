@@ -183,22 +183,6 @@ export class RegistryCorrupt extends Schema.TaggedError<RegistryCorrupt>()("Regi
   reason: Schema.String,
 }) {}
 
-/** A supplied token does not exist or is not valid for this capsule. */
-export class TokenNotFound extends Schema.TaggedError<TokenNotFound>()("TokenNotFound", {
-  token: Schema.String,
-}) {}
-
-/** A token was already consumed and cannot be replayed. */
-export class TokenAlreadyConsumed extends Schema.TaggedError<TokenAlreadyConsumed>()(
-  "TokenAlreadyConsumed",
-  { token: Schema.String, consumedAt: Schema.String },
-) {}
-
-/** A supplied token was malformed at the domain boundary. */
-export class InvalidToken extends Schema.TaggedError<InvalidToken>()("InvalidToken", {
-  reason: Schema.String,
-}) {}
-
 /** All predictable failures emitted by CapsuleDB's public runtime seams. */
 export type CapsuleError =
   | CapsuleDefinitionError
@@ -225,7 +209,4 @@ export type CapsuleError =
   | PreparationFailed
   | NotReady
   | LedgerConflict
-  | RegistryCorrupt
-  | TokenNotFound
-  | TokenAlreadyConsumed
-  | InvalidToken;
+  | RegistryCorrupt;

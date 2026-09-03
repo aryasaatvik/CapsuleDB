@@ -27,11 +27,7 @@ import {
   type ProviderProfileError,
 } from "./Provider.ts";
 import { compileD1Migration, runD1Migration, type D1BatchClient } from "./internal/d1-migrator.ts";
-import {
-  LEDGER_TABLE,
-  METADATA_TABLE,
-  runTransactionalMigration,
-} from "./internal/transactional-migrator.ts";
+import { ledgerTables, runTransactionalMigration } from "./internal/transactional-migrator.ts";
 
 /** Existential capsule view retained by a heterogeneous registry. */
 type AnyCapsule = Capsule<never, unknown, unknown>;
@@ -42,6 +38,12 @@ export interface Options<Caps extends ReadonlyArray<AnyCapsule> = ReadonlyArray<
   readonly capsules: Caps;
   /** Permit migrations marked `destructive`; defaults to `false`. */
   readonly allowDestructive?: boolean;
+  /**
+   * Prefix for the two tables CapsuleDB's own lifecycle owns; defaults to
+   * `capsuledb`. It is part of the physical layout, so two registries can share
+   * a database, but a deployed registry must never change it.
+   */
+  readonly prefix?: string;
 }
 
 /**
@@ -79,6 +81,7 @@ export type Requirements<Caps extends ReadonlyArray<AnyCapsule>> = {
  * `MissingProviderMigration` take different actions.
  */
 export type RegistryError =
+  | InvalidDefinition
   | ProviderProfileError
   | ManifestError
   | DuplicateCapsule
@@ -96,14 +99,15 @@ export type RegistryRuntimeError =
   | DatabaseAhead
   | DestructiveMigrationUnauthorized
   | PartialMigration
-  | PreparationFailed
-  | InvalidDefinition;
+  | PreparationFailed;
 
 /** A validated set of capsules and the manifest they describe. */
 interface Registry {
   readonly provider: ProviderProfile;
   readonly capsules: ReadonlyArray<AnyCapsule>;
   readonly allowDestructive: boolean;
+  readonly ledger: string;
+  readonly metadata: string;
   readonly manifest: Manifest;
 }
 
@@ -162,10 +166,20 @@ const resolve = (options: Options): Effect.Effect<Registry, RegistryError> =>
       }
     }
 
+    const tables = yield* Effect.try({
+      try: () => ledgerTables(options.prefix),
+      catch: (cause) =>
+        cause instanceof InvalidDefinition
+          ? cause
+          : new InvalidDefinition({ subject: "registry prefix", reason: String(cause) }),
+    });
+
     return Object.freeze({
       provider,
       capsules: Object.freeze([...options.capsules]),
       allowDestructive: options.allowDestructive ?? false,
+      ledger: tables.ledger,
+      metadata: tables.metadata,
       manifest: yield* buildManifest({ capsules: options.capsules }),
     });
   }).pipe(Effect.withSpan("capsuledb.registry.resolve"));
@@ -209,9 +223,12 @@ const CatalogCountSchema = Schema.Struct({
   count: Schema.Union([Schema.Number, Schema.String]),
 });
 
-const ensureRuntimeTables = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError> =>
+const ensureRuntimeTables = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+): Effect.Effect<void, SqlError> =>
   Effect.gen(function* () {
-    yield* sql.unsafe(`CREATE TABLE IF NOT EXISTS "${LEDGER_TABLE}" (
+    yield* sql.unsafe(`CREATE TABLE IF NOT EXISTS "${registry.ledger}" (
       capsule_id TEXT NOT NULL,
       migration_id INTEGER NOT NULL,
       name TEXT NOT NULL,
@@ -220,7 +237,7 @@ const ensureRuntimeTables = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlE
       provider TEXT NOT NULL DEFAULT 'sqlite',
       PRIMARY KEY (capsule_id, migration_id)
     )`);
-    yield* sql.unsafe(`CREATE TABLE IF NOT EXISTS "${METADATA_TABLE}" (
+    yield* sql.unsafe(`CREATE TABLE IF NOT EXISTS "${registry.metadata}" (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       fingerprint TEXT NOT NULL,
       provider TEXT NOT NULL
@@ -230,11 +247,12 @@ const ensureRuntimeTables = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlE
 /** Inspect catalog metadata without creating or mutating CapsuleDB tables. */
 const runtimeTablesExist = (
   sql: SqlClient.SqlClient,
-  provider: ProviderProfile,
+  registry: Registry,
 ): Effect.Effect<"none" | "partial" | "complete", SqlError> =>
   Effect.gen(function* () {
+    const { ledger: LEDGER_TABLE, metadata: METADATA_TABLE } = registry;
     const rows =
-      provider.dialect === "postgres"
+      registry.provider.dialect === "postgres"
         ? yield* sql`SELECT COUNT(*)::int AS count FROM information_schema.tables
             WHERE table_schema = current_schema()
               AND table_name IN (${LEDGER_TABLE}, ${METADATA_TABLE})`
@@ -253,10 +271,11 @@ const runtimeTablesExist = (
 
 const readMetadata = (
   sql: SqlClient.SqlClient,
+  registry: Registry,
 ): Effect.Effect<MetadataRow | undefined, SqlError | RegistryCorrupt> =>
   Effect.gen(function* () {
     const rows = yield* sql`SELECT id, fingerprint, provider
-      FROM ${sql(METADATA_TABLE)} WHERE id = 1`;
+      FROM ${sql(registry.metadata)} WHERE id = 1`;
     const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(MetadataRowSchema))(rows).pipe(
       Effect.mapError(
         (cause) => new RegistryCorrupt({ operation: "read metadata", reason: String(cause) }),
@@ -267,12 +286,13 @@ const readMetadata = (
 
 const readLedger = (
   sql: SqlClient.SqlClient,
+  registry: Registry,
   capsuleId: string,
   migrationId: number,
 ): Effect.Effect<LedgerRow | undefined, SqlError | RegistryCorrupt> =>
   Effect.gen(function* () {
     const rows = yield* sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider
-      FROM ${sql(LEDGER_TABLE)}
+      FROM ${sql(registry.ledger)}
       WHERE capsule_id = ${capsuleId} AND migration_id = ${migrationId}`;
     const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(LedgerRowSchema))(rows).pipe(
       Effect.mapError(
@@ -284,9 +304,10 @@ const readLedger = (
 
 const readLedgerRows = (
   sql: SqlClient.SqlClient,
+  registry: Registry,
 ): Effect.Effect<ReadonlyArray<LedgerRow>, SqlError | RegistryCorrupt> =>
   sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider
-    FROM ${sql(LEDGER_TABLE)} ORDER BY capsule_id, migration_id`.pipe(
+    FROM ${sql(registry.ledger)} ORDER BY capsule_id, migration_id`.pipe(
     Effect.flatMap((rows) =>
       Schema.decodeUnknownEffect(Schema.Array(LedgerRowSchema))(rows).pipe(
         Effect.mapError(
@@ -388,7 +409,7 @@ const writeMetadata = (
   registry: Registry,
   provider: string,
 ): Effect.Effect<void, SqlError> =>
-  sql`INSERT INTO ${sql(METADATA_TABLE)} (id, fingerprint, provider)
+  sql`INSERT INTO ${sql(registry.metadata)} (id, fingerprint, provider)
     VALUES (1, ${registry.manifest.fingerprint}, ${provider})
     ON CONFLICT(id) DO UPDATE SET
       fingerprint = excluded.fingerprint,
@@ -456,6 +477,7 @@ const applyTransactional = (
       checksum,
       provider: providerName(registry.provider.provider),
       operations,
+      ledgerTable: registry.ledger,
     }).pipe(
       Effect.tap(() =>
         Effect.logDebug("CapsuleDB migration applied").pipe(
@@ -471,7 +493,14 @@ const applyTransactional = (
     );
 
     if (outcome._tag === "Failure") {
-      return yield* reconcileFailedClaim(sql, capsule, migration, checksum, outcome.error);
+      return yield* reconcileFailedClaim(
+        sql,
+        registry,
+        capsule,
+        migration,
+        checksum,
+        outcome.error,
+      );
     }
   }).pipe(Effect.withSpan("capsuledb.registry.apply"));
 
@@ -493,6 +522,7 @@ const applyD1 = (
       checksum,
       provider: providerName(registry.provider.provider),
       operations,
+      ledgerTable: registry.ledger,
     }).pipe(
       Effect.match({
         onFailure: (error) => ({ _tag: "Failure" as const, error }),
@@ -501,7 +531,14 @@ const applyD1 = (
     );
 
     if (outcome._tag === "Failure") {
-      return yield* reconcileFailedClaim(sql, capsule, migration, checksum, outcome.error);
+      return yield* reconcileFailedClaim(
+        sql,
+        registry,
+        capsule,
+        migration,
+        checksum,
+        outcome.error,
+      );
     }
 
     yield* Effect.logDebug("CapsuleDB D1 migration applied").pipe(
@@ -518,13 +555,14 @@ const applyD1 = (
  */
 const reconcileFailedClaim = (
   sql: SqlClient.SqlClient,
+  registry: Registry,
   capsule: AnyCapsule,
   migration: Migration,
   checksum: string,
   error: RegistryRuntimeError,
 ): Effect.Effect<void, RegistryRuntimeError> =>
   Effect.gen(function* () {
-    const reread = yield* readLedger(sql, capsule.id, migration.id);
+    const reread = yield* readLedger(sql, registry, capsule.id, migration.id);
     if (reread === undefined) return yield* Effect.fail(error);
     if (reread.checksum === checksum && reread.name === migration.name) {
       yield* Effect.logDebug("CapsuleDB migration conflict converged").pipe(
@@ -585,6 +623,7 @@ const preflightD1Pending = (
           checksum: manifestMigration.checksum,
           provider: providerName(registry.provider.provider),
           operations: yield* migrationOperations(registry, migration),
+          ledgerTable: registry.ledger,
         });
       }
     }
@@ -601,7 +640,7 @@ const applyPending = (
         if (manifestMigration === undefined) {
           return yield* Effect.fail(missingManifestMigration(registry, capsule.id, migration.id));
         }
-        const existing = yield* readLedger(sql, capsule.id, migration.id);
+        const existing = yield* readLedger(sql, registry, capsule.id, migration.id);
         if (existing !== undefined) {
           if (
             existing.checksum !== manifestMigration.checksum ||
@@ -679,13 +718,13 @@ const readReadiness = (
 ): Effect.Effect<Readiness, SqlError> =>
   Effect.gen(function* () {
     const expectedProvider = providerName(registry.provider.provider);
-    const tablesExist = yield* runtimeTablesExist(sql, registry.provider);
+    const tablesExist = yield* runtimeTablesExist(sql, registry);
     if (tablesExist === "none") return pending(registry, []);
     if (tablesExist === "partial") return drift(registry, "registry tables are incomplete");
 
-    const metadataResult = yield* eitherOf(readMetadata(sql));
+    const metadataResult = yield* eitherOf(readMetadata(sql, registry));
     if (metadataResult._tag === "Left") return drift(registry, String(metadataResult.left));
-    const ledgerResult = yield* eitherOf(readLedgerRows(sql));
+    const ledgerResult = yield* eitherOf(readLedgerRows(sql, registry));
     if (ledgerResult._tag === "Left") return drift(registry, String(ledgerResult.left));
 
     const metadata = metadataResult.right;
@@ -753,20 +792,23 @@ const preparePostgres = (
       // PostgreSQL advisory locks are database-wide and transaction-scoped.
       // The stable key serializes every CapsuleDB registry on this database.
       yield* sql`SELECT pg_advisory_xact_lock(${45_120_617})`;
-      yield* validateExistingLedger(registry, yield* readLedgerRows(sql));
+      yield* validateExistingLedger(registry, yield* readLedgerRows(sql, registry));
       yield* applyPending(sql, registry);
       yield* writeMetadata(sql, registry, providerName(registry.provider.provider));
     }),
   );
 
-const initializePostgres = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError> =>
+const initializePostgres = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+): Effect.Effect<void, SqlError> =>
   sql.withTransaction(
     Effect.gen(function* () {
       // The advisory lock must cover first-use DDL as well as migration DDL;
       // PostgreSQL can still race two CREATE TABLE IF NOT EXISTS statements
       // while registering the table's row type.
       yield* sql`SELECT pg_advisory_xact_lock(${45_120_617})`;
-      yield* ensureRuntimeTables(sql);
+      yield* ensureRuntimeTables(sql, registry);
     }),
   );
 
@@ -776,15 +818,15 @@ const prepareRegistry = (
 ): Effect.Effect<Ready, RegistryRuntimeError> =>
   Effect.gen(function* () {
     if (registry.provider.dialect === "postgres") {
-      yield* initializePostgres(sql);
+      yield* initializePostgres(sql, registry);
     } else {
-      yield* ensureRuntimeTables(sql);
+      yield* ensureRuntimeTables(sql, registry);
     }
 
-    const ledgerRows = yield* readLedgerRows(sql);
+    const ledgerRows = yield* readLedgerRows(sql, registry);
     yield* validateExistingLedger(registry, ledgerRows);
 
-    const metadata = yield* readMetadata(sql);
+    const metadata = yield* readMetadata(sql, registry);
     const expectedProvider = providerName(registry.provider.provider);
     if (metadata !== undefined && metadata.provider !== expectedProvider) {
       yield* Effect.logWarning("CapsuleDB provider diverged").pipe(

@@ -155,6 +155,28 @@ missing, reordered, or unsupported projections. These files are optional
 deployment aids; they do not execute migrations and do not replace the
 host's canonical `Registry.layer` call.
 
+## Test your capsule with the exported kit
+
+`capsuledb/Testing` ships the same provider-neutral conformance suite this
+repository runs, plus a throwaway SQLite client, so a capsule author does not
+have to bring testcontainers to get a first signal:
+
+```ts
+import { Effect } from "effect";
+import { runConformance, withSqlite } from "capsuledb/Testing";
+
+import { capsule } from "./capsule.js";
+
+test("capsule conforms", () => Effect.runPromise(withSqlite(runConformance(capsule))));
+```
+
+`conformance(capsule, profile?)` returns the cases as plain Effects if you would
+rather register one test per case, and it accepts any provider profile when you
+do have a real client. The cases migrate and read the database they are given,
+so point them at a scratch database. `withSqlite` uses `@effect/sql-sqlite-bun`
+under Bun and `@effect/sql-libsql` elsewhere; both are optional peers imported
+only when the helper runs.
+
 ## What the author does not own
 
 The author does not open or close a host connection, choose the host's

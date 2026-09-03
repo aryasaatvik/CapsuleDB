@@ -4,6 +4,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { providerName } from "../../src/Provider.ts";
 import * as Registry from "../../src/Registry.ts";
+import * as Testing from "../../src/Testing.ts";
 import { capsule as referenceTokenCapsule } from "../../examples/reference-token/Capsule.ts";
 import {
   OneTimeTokens,
@@ -13,8 +14,10 @@ import type { ProviderCase } from "../providers/cases.ts";
 
 /**
  * Run the provider-neutral public behavior against one host-owned client.
- * Provider-specific fixtures supply only the client; all lifecycle and domain
- * assertions below are deliberately shared across the complete matrix.
+ *
+ * The lifecycle half is the exported `capsuledb/Testing` conformance kit, so
+ * the matrix exercises exactly what a third-party capsule author gets. The
+ * domain half below is specific to the reference capsule.
  */
 export const runProviderSuite = (
   provider: ProviderCase,
@@ -26,10 +29,9 @@ export const runProviderSuite = (
       provider: provider.profile,
       capsules: [capsule],
     };
-    const registryManifest = yield* Registry.manifest(registry);
-    const pending = yield* Registry.status(registry);
-    assert.strictEqual(pending._tag, "Pending");
+    yield* Testing.runConformance(capsule, provider.profile);
 
+    const registryManifest = yield* Registry.manifest(registry);
     const firstReceipt = yield* Registry.prepare(registry);
     assert.strictEqual(firstReceipt.provider, providerName(provider.profile.provider));
     assert.strictEqual(firstReceipt.fingerprint, registryManifest.fingerprint);

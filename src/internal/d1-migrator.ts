@@ -6,7 +6,6 @@ import type * as Statement from "effect/unstable/sql/Statement";
 import { InvalidDefinition, ProviderMismatch } from "../Error.ts";
 import type { Operation } from "../Migration.ts";
 import type { ProviderProfile } from "../Provider.ts";
-import { LEDGER_TABLE } from "./transactional-migrator.ts";
 
 /** The narrow D1 runtime capability consumed by CapsuleDB. */
 export interface D1BatchClient extends SqlClient.SqlClient {
@@ -24,6 +23,7 @@ export interface D1Migration {
   readonly checksum: string;
   readonly provider: string;
   readonly operations: ReadonlyArray<Operation>;
+  readonly ledgerTable: string;
 }
 
 const isBatchClient = (sql: SqlClient.SqlClient): sql is D1BatchClient =>
@@ -63,7 +63,7 @@ export const compileD1Migration = (
     }
 
     const statements: Array<Statement.Statement<unknown>> = [
-      options.sql`INSERT INTO ${options.sql(LEDGER_TABLE)}
+      options.sql`INSERT INTO ${options.sql(options.ledgerTable)}
         (capsule_id, migration_id, name, checksum, applied_at, provider)
         VALUES (${options.capsuleId}, ${options.migrationId}, ${options.name},
           ${options.checksum}, ${new Date().toISOString()}, ${options.provider})`,

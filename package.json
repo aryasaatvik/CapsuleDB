@@ -90,6 +90,10 @@
       "types": "./dist/SqliteBun.d.mts",
       "import": "./dist/SqliteBun.mjs"
     },
+    "./Testing": {
+      "types": "./dist/Testing.d.mts",
+      "import": "./dist/Testing.mjs"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -131,7 +135,17 @@
     "vitest": "4.1.11"
   },
   "peerDependencies": {
+    "@effect/sql-libsql": ">=4.0.0-rc.111 <5",
+    "@effect/sql-sqlite-bun": ">=4.0.0-rc.111 <5",
     "effect": ">=4.0.0-rc.111 <5"
+  },
+  "peerDependenciesMeta": {
+    "@effect/sql-libsql": {
+      "optional": true
+    },
+    "@effect/sql-sqlite-bun": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=24.10.0"
