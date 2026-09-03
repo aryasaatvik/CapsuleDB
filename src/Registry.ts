@@ -1045,8 +1045,11 @@ const prepareRegistry = (
         providerStamped &&
         hasCompleteLedger(registry, ledgerRows)
       ) {
-        yield* rewriteLegacy;
+        // This recovery path is D1-only and has no transaction either, so the
+        // re-key goes after the metadata write for the same reason: a failure
+        // must leave every original checksum in place for the next run.
         yield* writeMetadata(sql, registry, expectedProvider);
+        yield* rewriteLegacy;
         return ready(registry);
       }
       return yield* Effect.fail(
