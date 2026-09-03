@@ -188,6 +188,39 @@ describe("per-dialect migration checksums", () => {
     ),
   );
 
+  it.effect("never reports Ready while a re-key is still unpersisted", () =>
+    withSqlite(
+      Effect.gen(function* () {
+        const capsule = capsuleWith({ postgres: [CREATE_TOKENS], sqlite: [CREATE_TOKENS] });
+        const options = {
+          provider: BunSqliteProfile,
+          capsules: [capsule],
+          allowLegacyLedgerUpgrade: true,
+        };
+        yield* Registry.prepare(options);
+
+        // The state an interrupted upgrade leaves behind: current metadata,
+        // ledger rows still keyed the old way.
+        const sql = yield* Effect.service(SqlClient.SqlClient);
+        yield* sql.unsafe(`UPDATE "capsuledb_registry_ledger"
+          SET checksum = '${"a".repeat(64)}', dialect = NULL
+          WHERE capsule_id = 'checksum.tokens'`);
+
+        const readiness = yield* Registry.status(options);
+        assert.strictEqual(readiness._tag, "Drift");
+        if (readiness._tag === "Drift") {
+          assert.strictEqual(readiness.reason.includes("re-keying"), true);
+        }
+        // Assert mode must not boot on it either.
+        assert.strictEqual((yield* Registry.assert(options).pipe(Effect.flip))._tag, "NotReady");
+
+        // One more preparation finishes the job, with no operator step.
+        yield* Registry.prepare(options);
+        assert.strictEqual((yield* Registry.status(options))._tag, "Ready");
+      }),
+    ),
+  );
+
   it.effect("still fails closed when a v1 row's migration name diverges", () =>
     withSqlite(
       Effect.gen(function* () {

@@ -435,13 +435,10 @@ const hasCompleteLedger = (registry: Registry, ledgerRows: ReadonlyArray<LedgerR
       ) {
         return false;
       }
-      // A v1 row's checksum cannot be compared against a v2 body. The registry
-      // is only complete once the operator has authorized re-keying it.
-      if (isLegacyRow(ledgerRow)) {
-        if (!registry.allowLegacyLedgerUpgrade) return false;
-      } else if (ledgerRow.checksum !== body.checksum) {
-        return false;
-      }
+      // A row still carrying a v1 checksum is not fully recorded, whatever the
+      // operator authorized. Readiness must not depend on a re-key that has not
+      // been persisted, or an interrupted upgrade would read as Ready.
+      if (isLegacyRow(ledgerRow) || ledgerRow.checksum !== body.checksum) return false;
     }
   }
   return true;
@@ -943,6 +940,16 @@ const readReadiness = (
             `migration ${error.migrationId} of capsule ${error.capsuleId} was applied before per-dialect checksums; confirm its history is unchanged and set allowLegacyLedgerUpgrade`,
           );
       }
+    }
+
+    // Reachable only with `allowLegacyLedgerUpgrade` set: without it the
+    // validation above already reported the unauthorized row. One more
+    // preparation finishes the re-key.
+    if (activeLedgerRows(registry, ledgerRows).some(isLegacyRow)) {
+      return drift(
+        registry,
+        "some ledger rows still carry a checksum from before per-dialect checksums; run one preparation to finish re-keying them",
+      );
     }
 
     const complete = hasCompleteLedger(registry, ledgerRows);
