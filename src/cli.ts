@@ -14,7 +14,11 @@ import {
   validateD1Artifact,
   type D1Artifact,
 } from "./D1Artifact.ts";
+import { check as checkEmitted, emit, indexOf, INDEX_PATH, type EmitFile } from "./Emit.ts";
+import { sha256 } from "./internal/checksum.ts";
 import { InvalidDefinition } from "./Error.ts";
+import type { Dialect } from "./Dialect.ts";
+import type { Provider } from "./Provider.ts";
 import { buildManifest, decodeManifest, validateManifest, type Manifest } from "./Manifest.ts";
 import type { Capsule } from "./Capsule.ts";
 import { VERSION } from "./index.ts";
@@ -42,6 +46,26 @@ const manifestFlag = Flag.string("manifest").pipe(
 
 const artifactFlag = Flag.string("artifact").pipe(
   Flag.withDescription("Path to an artifact JSON file or generated artifact directory"),
+);
+
+const dialectFlag = Flag.string("dialect").pipe(
+  Flag.withDescription("SQL dialect to emit: postgres or sqlite (required)"),
+);
+
+const outFlag = Flag.string("out").pipe(
+  Flag.withDescription("Directory the SQL files are written to or checked against"),
+);
+
+const providerFlag = Flag.string("provider").pipe(
+  Flag.withDefault(""),
+  Flag.withDescription(
+    "Provider identity stamped into emitted ledger rows: BunSqlite, Libsql, D1, or Postgres",
+  ),
+);
+
+const prefixFlag = Flag.string("prefix").pipe(
+  Flag.withDefault(""),
+  Flag.withDescription("Ledger table prefix; must match the host registry's prefix"),
 );
 
 type AnyCapsule = Capsule<never, unknown, unknown>;
@@ -356,6 +380,196 @@ const d1ArtifactCheck = Command.make(
   ),
 );
 
+const parseDialect = (value: string): Effect.Effect<Dialect, InvalidDefinition> =>
+  value === "postgres" || value === "sqlite"
+    ? Effect.succeed(value)
+    : Effect.fail(
+        new InvalidDefinition({
+          subject: "--dialect",
+          reason: `expected "postgres" or "sqlite", got ${JSON.stringify(value)}`,
+        }),
+      );
+
+const parseProvider = (value: string): Effect.Effect<Provider | undefined, InvalidDefinition> =>
+  value.length === 0
+    ? Effect.succeed(undefined)
+    : value === "BunSqlite" || value === "Libsql" || value === "Postgres" || value === "D1"
+      ? Effect.succeed(value)
+      : Effect.fail(
+          new InvalidDefinition({
+            subject: "--provider",
+            reason: `expected BunSqlite, Libsql, Postgres, or D1, got ${JSON.stringify(value)}`,
+          }),
+        );
+
+const emitOptionsOf = (dialect: string, provider: string, prefix: string) =>
+  Effect.gen(function* () {
+    const parsedProvider = yield* parseProvider(provider);
+    return {
+      dialect: yield* parseDialect(dialect),
+      ...(parsedProvider === undefined ? {} : { provider: parsedProvider }),
+      ...(prefix.length === 0 ? {} : { prefix }),
+    };
+  });
+
+const projectFiles = (
+  modulePath: string,
+  exportName: string,
+  dialect: string,
+  provider: string,
+  prefix: string,
+) =>
+  Effect.gen(function* () {
+    const manifest = yield* buildFromInput(modulePath, exportName);
+    return yield* emit(manifest, yield* emitOptionsOf(dialect, provider, prefix));
+  });
+
+const isEmittedPath = (path: string): boolean =>
+  basename(path) === path && (path.endsWith(".sql") || path === INDEX_PATH);
+
+const readEmittedFiles = (
+  output: string,
+): Effect.Effect<ReadonlyArray<EmitFile>, InvalidDefinition> =>
+  Effect.gen(function* () {
+    const absolute = resolve(output);
+    const entries = yield* Effect.tryPromise({
+      try: async () => {
+        try {
+          return await readdir(absolute);
+        } catch (cause) {
+          if (isMissingFile(cause)) return [] as ReadonlyArray<string>;
+          throw cause;
+        }
+      },
+      catch: (cause) => operationError("emit directory", cause),
+    });
+    const files: Array<EmitFile> = [];
+    for (const entry of entries) {
+      if (!isEmittedPath(entry)) continue;
+      files.push({
+        path: entry,
+        contents: yield* readText(join(absolute, entry), `emit ${entry}`),
+      });
+    }
+    return files;
+  });
+
+const emitCommand = Command.make(
+  "emit",
+  {
+    module: moduleFlag,
+    export: exportFlag,
+    dialect: dialectFlag,
+    provider: providerFlag,
+    prefix: prefixFlag,
+    out: outFlag,
+    json: jsonFlag,
+  },
+  ({ module: modulePath, export: exportName, dialect, provider, prefix, out, json }) =>
+    report({
+      command: "emit",
+      json,
+      operation: Effect.gen(function* () {
+        const files = yield* projectFiles(modulePath, exportName, dialect, provider, prefix);
+        const expected = new Set(files.map((file) => file.path));
+        const existingFiles = yield* readEmittedFiles(out);
+        const claimed = new Map(
+          (indexOf(existingFiles)?.files ?? []).map((file) => [file.path, file.checksum]),
+        );
+
+        /**
+         * One rule for touching any file in the folder: CapsuleDB may only
+         * replace or delete bytes it wrote. A path is safe when nothing is
+         * there, when the previous index claims it and its bytes still hash to
+         * what that emit wrote, or when it already holds the new contents.
+         * Everything else is the host's, whatever it looks like.
+         */
+        const mayReplace = (existing: EmitFile, next?: string) =>
+          Effect.gen(function* () {
+            if (existing.contents === next) return true;
+            const checksum = claimed.get(existing.path);
+            return checksum !== undefined && (yield* sha256(existing.contents)) === checksum;
+          });
+
+        const refuse = (path: string) =>
+          Effect.fail(
+            new InvalidDefinition({
+              subject: `emit ${path}`,
+              reason:
+                "this file's contents are not the ones CapsuleDB wrote; remove or rename it yourself",
+            }),
+          );
+
+        // A rename changes a generated path, so the obsolete file has to go or
+        // the folder would fail its own `check`.
+        const removed: Array<string> = [];
+        for (const [path] of claimed) {
+          if (expected.has(path) || !isEmittedPath(path)) continue;
+          const existing = existingFiles.find((file) => file.path === path);
+          if (existing === undefined) continue;
+          if (!(yield* mayReplace(existing))) return yield* refuse(path);
+          yield* Effect.tryPromise({
+            try: () => unlink(join(resolve(out), path)),
+            catch: (cause) => operationError(`emit ${path}`, cause),
+          });
+          removed.push(path);
+        }
+
+        for (const file of files) {
+          const existing = existingFiles.find((candidate) => candidate.path === file.path);
+          // The index cannot record its own checksum, and it is metadata
+          // CapsuleDB owns outright, so it is always rewritten.
+          if (existing !== undefined && file.path !== INDEX_PATH) {
+            if (!(yield* mayReplace(existing, file.contents))) return yield* refuse(file.path);
+          }
+          yield* writeText(join(resolve(out), file.path), file.contents, `emit ${file.path}`);
+        }
+        return { files, removed };
+      }),
+      success: ({ files, removed }) => ({
+        out: resolve(out),
+        dialect,
+        files: files.map((file) => file.path),
+        removed,
+      }),
+      summary: ({ files, removed }) =>
+        `Wrote ${files.length} ${dialect} SQL file(s) to ${resolve(out)}` +
+        (removed.length === 0 ? "" : `, removed ${removed.length} stale file(s)`),
+    }),
+).pipe(
+  Command.withDescription(
+    "Write the migrations, ledger DDL, and ledger rows as SQL a host applies itself.",
+  ),
+);
+
+const checkCommand = Command.make(
+  "check",
+  {
+    module: moduleFlag,
+    export: exportFlag,
+    dialect: dialectFlag,
+    provider: providerFlag,
+    prefix: prefixFlag,
+    out: outFlag,
+    json: jsonFlag,
+  },
+  ({ module: modulePath, export: exportName, dialect, provider, prefix, out, json }) =>
+    report({
+      command: "check",
+      json,
+      operation: Effect.gen(function* () {
+        const expected = yield* projectFiles(modulePath, exportName, dialect, provider, prefix);
+        yield* checkEmitted(expected, yield* readEmittedFiles(out));
+        return expected;
+      }),
+      success: (files) => ({ out: resolve(out), dialect, files: files.map((file) => file.path) }),
+      summary: (files) =>
+        `Emitted ${dialect} SQL is current (${files.length} file(s) in ${resolve(out)})`,
+    }),
+).pipe(
+  Command.withDescription("Check an emitted SQL folder against the current migration history."),
+);
+
 const manifestCommand = Command.make("manifest").pipe(
   Command.withSubcommands([manifestWrite, manifestCheck]),
 );
@@ -366,8 +580,10 @@ const d1Command = Command.make("d1").pipe(
 
 /** The public Effect-native CapsuleDB command tree. */
 export const cli = Command.make("capsuledb").pipe(
-  Command.withDescription("Build and verify CapsuleDB manifests and optional D1 artifacts."),
-  Command.withSubcommands([manifestCommand, d1Command]),
+  Command.withDescription(
+    "Emit and verify capsule SQL, and build and verify manifests and optional D1 artifacts.",
+  ),
+  Command.withSubcommands([emitCommand, checkCommand, manifestCommand, d1Command]),
 );
 
 /** Run the command tree with explicit arguments; useful for tests and host tooling. */

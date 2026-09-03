@@ -10,6 +10,7 @@ import {
   DuplicateMigrationId,
   InvalidDefinition,
   LedgerConflict,
+  LegacyLedgerUpgradeUnauthorized,
   MissingProviderMigration,
   NotReady,
   PartialMigration,
@@ -18,7 +19,13 @@ import {
   RegistryCorrupt,
 } from "./Error.ts";
 import { resolve as resolveMigration, type Migration, type Operation } from "./Migration.ts";
-import { buildManifest, type Manifest, type ManifestError } from "./Manifest.ts";
+import {
+  bodyFor,
+  buildManifest,
+  type Manifest,
+  type ManifestBody,
+  type ManifestError,
+} from "./Manifest.ts";
 import type { PendingMigration, Readiness, Ready } from "./Readiness.ts";
 import {
   makeProviderProfile,
@@ -36,8 +43,24 @@ type AnyCapsule = Capsule<never, unknown, unknown>;
 export interface Options<Caps extends ReadonlyArray<AnyCapsule> = ReadonlyArray<AnyCapsule>> {
   readonly provider: ProviderProfile;
   readonly capsules: Caps;
+  /**
+   * `prepare` (default) applies pending migrations while the Layer is built.
+   * `assert` applies nothing and fails unless the database is already Ready,
+   * which is what a host that applied `capsuledb emit` output wants.
+   */
+  readonly mode?: "prepare" | "assert";
   /** Permit migrations marked `destructive`; defaults to `false`. */
   readonly allowDestructive?: boolean;
+  /**
+   * Permit re-keying a ledger written before per-dialect checksums; defaults to
+   * `false`.
+   *
+   * A manifest v1 checksum covered every dialect body at once under a
+   * canonicalization this version cannot reproduce, so the upgrade can only
+   * trust a row's logical identity — capsule, migration id, and name — and not
+   * its content. Confirm the applied history is unchanged, then opt in.
+   */
+  readonly allowLegacyLedgerUpgrade?: boolean;
   /**
    * Prefix for the two tables CapsuleDB's own lifecycle owns; defaults to
    * `capsuledb`. It is part of the physical layout, so two registries can share
@@ -98,6 +121,7 @@ export type RegistryRuntimeError =
   | LedgerConflict
   | DatabaseAhead
   | DestructiveMigrationUnauthorized
+  | LegacyLedgerUpgradeUnauthorized
   | PartialMigration
   | PreparationFailed;
 
@@ -106,6 +130,7 @@ interface Registry {
   readonly provider: ProviderProfile;
   readonly capsules: ReadonlyArray<AnyCapsule>;
   readonly allowDestructive: boolean;
+  readonly allowLegacyLedgerUpgrade: boolean;
   readonly ledger: string;
   readonly metadata: string;
   readonly manifest: Manifest;
@@ -178,6 +203,7 @@ const resolve = (options: Options): Effect.Effect<Registry, RegistryError> =>
       provider,
       capsules: Object.freeze([...options.capsules]),
       allowDestructive: options.allowDestructive ?? false,
+      allowLegacyLedgerUpgrade: options.allowLegacyLedgerUpgrade ?? false,
       ledger: tables.ledger,
       metadata: tables.metadata,
       manifest: yield* buildManifest({ capsules: options.capsules }),
@@ -195,6 +221,12 @@ interface LedgerRow {
   readonly checksum: string;
   readonly applied_at: string;
   readonly provider: string;
+  /**
+   * The dialect this row's checksum is keyed to. `null` marks a manifest v1
+   * row, whose checksum covered every dialect body at once; those rows are
+   * upgraded in place the first time a v2 runtime prepares against them.
+   */
+  readonly dialect: string | null;
 }
 
 interface MetadataRow {
@@ -213,6 +245,7 @@ const LedgerRowSchema = Schema.Struct({
   checksum: Schema.String.pipe(Schema.check(Schema.isLengthBetween(64, 64))),
   applied_at: AppliedAt,
   provider: Schema.String,
+  dialect: Schema.NullOr(Schema.String),
 });
 const MetadataRowSchema = Schema.Struct({
   id: Schema.Literal(1),
@@ -235,13 +268,42 @@ const ensureRuntimeTables = (
       checksum TEXT NOT NULL,
       applied_at TEXT NOT NULL,
       provider TEXT NOT NULL DEFAULT 'sqlite',
+      dialect TEXT,
       PRIMARY KEY (capsule_id, migration_id)
     )`);
+    yield* addDialectColumn(sql, registry);
     yield* sql.unsafe(`CREATE TABLE IF NOT EXISTS "${registry.metadata}" (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       fingerprint TEXT NOT NULL,
       provider TEXT NOT NULL
     )`);
+  });
+
+/**
+ * Add the manifest v2 `dialect` column to a ledger created by an earlier
+ * release. The catalog check keeps this idempotent without swallowing real
+ * errors from `ALTER TABLE`.
+ */
+const addDialectColumn = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+): Effect.Effect<void, SqlError> =>
+  Effect.gen(function* () {
+    const rows =
+      registry.provider.dialect === "postgres"
+        ? yield* sql`SELECT COUNT(*)::int AS count FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = ${registry.ledger} AND column_name = 'dialect'`
+        : yield* sql`SELECT COUNT(*) AS count FROM pragma_table_info(${registry.ledger})
+            WHERE name = 'dialect'`;
+    const count = rows[0];
+    if (count === undefined) return;
+    const decoded = yield* Effect.try({
+      try: () => Schema.decodeUnknownSync(CatalogCountSchema)(count),
+      catch: () => undefined,
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (decoded !== undefined && Number(decoded.count) > 0) return;
+    yield* sql.unsafe(`ALTER TABLE "${registry.ledger}" ADD COLUMN dialect TEXT`);
   });
 
 /** Inspect catalog metadata without creating or mutating CapsuleDB tables. */
@@ -291,7 +353,8 @@ const readLedger = (
   migrationId: number,
 ): Effect.Effect<LedgerRow | undefined, SqlError | RegistryCorrupt> =>
   Effect.gen(function* () {
-    const rows = yield* sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider
+    const rows =
+      yield* sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider, dialect
       FROM ${sql(registry.ledger)}
       WHERE capsule_id = ${capsuleId} AND migration_id = ${migrationId}`;
     const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(LedgerRowSchema))(rows).pipe(
@@ -306,7 +369,7 @@ const readLedgerRows = (
   sql: SqlClient.SqlClient,
   registry: Registry,
 ): Effect.Effect<ReadonlyArray<LedgerRow>, SqlError | RegistryCorrupt> =>
-  sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider
+  sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider, dialect
     FROM ${sql(registry.ledger)} ORDER BY capsule_id, migration_id`.pipe(
     Effect.flatMap((rows) =>
       Schema.decodeUnknownEffect(Schema.Array(LedgerRowSchema))(rows).pipe(
@@ -332,6 +395,22 @@ const manifestMigrationOf = (registry: Registry, capsuleId: string, migrationId:
     ?.migrations.find((candidate) => candidate.id === migrationId);
 
 /**
+ * The manifest body this registry's dialect applies, and the only checksum a
+ * host on this dialect ever verifies.
+ */
+const manifestBodyOf = (
+  registry: Registry,
+  capsuleId: string,
+  migrationId: number,
+): ManifestBody | undefined => {
+  const migration = manifestMigrationOf(registry, capsuleId, migrationId);
+  return migration === undefined ? undefined : bodyFor(migration, registry.provider.dialect);
+};
+
+/** A v1 ledger row predates per-dialect checksums and is upgraded in place. */
+const isLegacyRow = (row: LedgerRow): boolean => row.dialect === null;
+
+/**
  * A metadata fingerprint is only meaningful when every expected active ledger
  * row is present and still agrees with the current manifest. Rows for capsules
  * removed from the registry are deliberately ignored and preserved.
@@ -342,21 +421,24 @@ const hasCompleteLedger = (registry: Registry, ledgerRows: ReadonlyArray<LedgerR
 
   for (const capsule of registry.capsules) {
     for (const migration of capsule.migrations) {
-      const manifestMigration = manifestMigrationOf(registry, capsule.id, migration.id);
+      const body = manifestBodyOf(registry, capsule.id, migration.id);
       const ledgerRow = activeRows.find(
         (candidate) =>
           candidate.capsule_id === capsule.id && candidate.migration_id === migration.id,
       );
       if (
-        manifestMigration === undefined ||
+        body === undefined ||
         ledgerRow === undefined ||
         ledgerRow.name !== migration.name ||
-        ledgerRow.checksum !== manifestMigration.checksum ||
         ledgerRow.provider !== providerName(registry.provider.provider) ||
         ledgerRow.applied_at.length === 0
       ) {
         return false;
       }
+      // A row still carrying a v1 checksum is not fully recorded, whatever the
+      // operator authorized. Readiness must not depend on a re-key that has not
+      // been persisted, or an interrupted upgrade would read as Ready.
+      if (isLegacyRow(ledgerRow) || ledgerRow.checksum !== body.checksum) return false;
     }
   }
   return true;
@@ -366,7 +448,10 @@ const hasCompleteLedger = (registry: Registry, ledgerRows: ReadonlyArray<LedgerR
 const validateExistingLedger = (
   registry: Registry,
   ledgerRows: ReadonlyArray<LedgerRow>,
-): Effect.Effect<void, DatabaseAhead | LedgerConflict | ProviderMismatch> =>
+): Effect.Effect<
+  void,
+  DatabaseAhead | LedgerConflict | LegacyLedgerUpgradeUnauthorized | ProviderMismatch
+> =>
   Effect.gen(function* () {
     const expectedProvider = providerName(registry.provider.provider);
     for (const row of ledgerRows) {
@@ -376,13 +461,13 @@ const validateExistingLedger = (
       if (capsule === undefined) continue;
 
       const migration = capsule.migrations.find((candidate) => candidate.id === row.migration_id);
-      const manifestMigration = manifestMigrationOf(registry, row.capsule_id, row.migration_id);
+      const body = manifestBodyOf(registry, row.capsule_id, row.migration_id);
       if (row.provider !== expectedProvider) {
         return yield* Effect.fail(
           new ProviderMismatch({ dialect: expectedProvider, mode: row.provider }),
         );
       }
-      if (migration === undefined || manifestMigration === undefined) {
+      if (migration === undefined || body === undefined) {
         return yield* Effect.fail(
           new DatabaseAhead({
             capsuleId: row.capsule_id,
@@ -391,12 +476,37 @@ const validateExistingLedger = (
           }),
         );
       }
-      if (row.checksum !== manifestMigration.checksum || row.name !== migration.name) {
+      if (row.name !== migration.name) {
         return yield* Effect.fail(
           new LedgerConflict({
             capsuleId: row.capsule_id,
             migrationId: row.migration_id,
-            expected: manifestMigration.checksum,
+            dialect: registry.provider.dialect,
+            expected: body.checksum,
+            actual: row.checksum,
+          }),
+        );
+      }
+      // A v1 row carries a checksum over every dialect body, which no v2
+      // manifest can reproduce, so only its logical identity carries over. That
+      // is a weaker guarantee than every other row gets, so it takes an
+      // explicit opt-in rather than happening silently.
+      if (isLegacyRow(row)) {
+        if (registry.allowLegacyLedgerUpgrade) continue;
+        return yield* Effect.fail(
+          new LegacyLedgerUpgradeUnauthorized({
+            capsuleId: row.capsule_id,
+            migrationId: row.migration_id,
+          }),
+        );
+      }
+      if (row.checksum !== body.checksum) {
+        return yield* Effect.fail(
+          new LedgerConflict({
+            capsuleId: row.capsule_id,
+            migrationId: row.migration_id,
+            dialect: registry.provider.dialect,
+            expected: body.checksum,
             actual: row.checksum,
           }),
         );
@@ -448,6 +558,7 @@ const unauthorizedDestructive = (
     : Effect.void;
 
 const ledgerConflict = (
+  registry: Registry,
   capsule: AnyCapsule,
   migration: Migration,
   expected: string,
@@ -456,6 +567,7 @@ const ledgerConflict = (
   new LedgerConflict({
     capsuleId: capsule.id,
     migrationId: migration.id,
+    dialect: registry.provider.dialect,
     expected,
     actual,
   });
@@ -476,6 +588,7 @@ const applyTransactional = (
       name: migration.name,
       checksum,
       provider: providerName(registry.provider.provider),
+      dialect: registry.provider.dialect,
       operations,
       ledgerTable: registry.ledger,
     }).pipe(
@@ -521,6 +634,7 @@ const applyD1 = (
       name: migration.name,
       checksum,
       provider: providerName(registry.provider.provider),
+      dialect: registry.provider.dialect,
       operations,
       ledgerTable: registry.ledger,
     }).pipe(
@@ -577,7 +691,9 @@ const reconcileFailedClaim = (
       Effect.annotateLogs("migration_id", String(migration.id)),
       Effect.annotateLogs("outcome", "divergence"),
     );
-    return yield* Effect.fail(ledgerConflict(capsule, migration, checksum, reread.checksum));
+    return yield* Effect.fail(
+      ledgerConflict(registry, capsule, migration, checksum, reread.checksum),
+    );
   });
 
 const missingManifestMigration = (
@@ -610,8 +726,8 @@ const preflightD1Pending = (
         );
         if (existing !== undefined) continue;
 
-        const manifestMigration = manifestMigrationOf(registry, capsule.id, migration.id);
-        if (manifestMigration === undefined) {
+        const body = manifestBodyOf(registry, capsule.id, migration.id);
+        if (body === undefined) {
           return yield* Effect.fail(missingManifestMigration(registry, capsule.id, migration.id));
         }
         yield* compileD1Migration({
@@ -620,8 +736,9 @@ const preflightD1Pending = (
           capsuleId: capsule.id,
           migrationId: migration.id,
           name: migration.name,
-          checksum: manifestMigration.checksum,
+          checksum: body.checksum,
           provider: providerName(registry.provider.provider),
+          dialect: registry.provider.dialect,
           operations: yield* migrationOperations(registry, migration),
           ledgerTable: registry.ledger,
         });
@@ -636,28 +753,86 @@ const applyPending = (
   Effect.gen(function* () {
     for (const capsule of registry.capsules) {
       for (const migration of capsule.migrations) {
-        const manifestMigration = manifestMigrationOf(registry, capsule.id, migration.id);
-        if (manifestMigration === undefined) {
+        const body = manifestBodyOf(registry, capsule.id, migration.id);
+        if (body === undefined) {
           return yield* Effect.fail(missingManifestMigration(registry, capsule.id, migration.id));
         }
         const existing = yield* readLedger(sql, registry, capsule.id, migration.id);
         if (existing !== undefined) {
           if (
-            existing.checksum !== manifestMigration.checksum ||
-            existing.name !== migration.name
+            existing.name !== migration.name ||
+            (!isLegacyRow(existing) && existing.checksum !== body.checksum)
           ) {
             return yield* Effect.fail(
-              ledgerConflict(capsule, migration, manifestMigration.checksum, existing.checksum),
+              ledgerConflict(registry, capsule, migration, body.checksum, existing.checksum),
             );
           }
           continue;
         }
         if (registry.provider.capabilities._tag === "AtomicBatch") {
-          yield* applyD1(sql, registry, capsule, migration, manifestMigration.checksum);
+          yield* applyD1(sql, registry, capsule, migration, body.checksum);
         } else {
-          yield* applyTransactional(sql, registry, capsule, migration, manifestMigration.checksum);
+          yield* applyTransactional(sql, registry, capsule, migration, body.checksum);
         }
       }
+    }
+  });
+
+/**
+ * Rewrite manifest v1 ledger rows to this dialect's checksum.
+ *
+ * A v1 checksum hashed every dialect body of a migration together, which is
+ * exactly the bug per-dialect checksums fix, and no v2 manifest can reproduce
+ * it. The upgrade therefore trusts the row's logical identity — capsule, id,
+ * and name, all already validated — and re-keys the checksum to the body this
+ * host actually applies. It runs once: a row that has a dialect is never
+ * touched again.
+ */
+/**
+ * The ledger as it will read once authorized legacy rows are re-keyed.
+ *
+ * Preparation decides against this view and persists the rewrite inside the
+ * same transaction as the rest of its work, so a run that fails afterwards
+ * leaves the original rows exactly where they were.
+ */
+const upgradedLedgerRows = (
+  registry: Registry,
+  ledgerRows: ReadonlyArray<LedgerRow>,
+): ReadonlyArray<LedgerRow> => {
+  if (!registry.allowLegacyLedgerUpgrade) return ledgerRows;
+  return ledgerRows.map((row) => {
+    if (!isLegacyRow(row)) return row;
+    const body = manifestBodyOf(registry, row.capsule_id, row.migration_id);
+    return body === undefined
+      ? row
+      : { ...row, checksum: body.checksum, dialect: registry.provider.dialect };
+  });
+};
+
+const rewriteLegacyRows = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+  ledgerRows: ReadonlyArray<LedgerRow>,
+): Effect.Effect<void, RegistryRuntimeError> =>
+  Effect.gen(function* () {
+    if (!registry.allowLegacyLedgerUpgrade) return;
+    for (const row of ledgerRows) {
+      if (!isLegacyRow(row)) continue;
+      const body = manifestBodyOf(registry, row.capsule_id, row.migration_id);
+      if (body === undefined) continue;
+
+      // `dialect IS NULL` keeps a concurrent preparation that already re-keyed
+      // this row from being overwritten with a second, redundant rewrite.
+      yield* sql`UPDATE ${sql(registry.ledger)}
+        SET checksum = ${body.checksum}, dialect = ${registry.provider.dialect}
+        WHERE capsule_id = ${row.capsule_id}
+          AND migration_id = ${row.migration_id}
+          AND dialect IS NULL`;
+      yield* Effect.logInfo("CapsuleDB ledger row upgraded to a per-dialect checksum").pipe(
+        Effect.annotateLogs("capsule_id", row.capsule_id),
+        Effect.annotateLogs("migration_id", String(row.migration_id)),
+        Effect.annotateLogs("dialect", registry.provider.dialect),
+      );
     }
   });
 
@@ -759,7 +934,22 @@ const readReadiness = (
             registry,
             `migration ${error.migrationId} of capsule ${error.capsuleId} was applied with checksum ${error.actual}, but the code now describes ${error.expected}`,
           );
+        case "LegacyLedgerUpgradeUnauthorized":
+          return drift(
+            registry,
+            `migration ${error.migrationId} of capsule ${error.capsuleId} was applied before per-dialect checksums; confirm its history is unchanged and set allowLegacyLedgerUpgrade`,
+          );
       }
+    }
+
+    // Reachable only with `allowLegacyLedgerUpgrade` set: without it the
+    // validation above already reported the unauthorized row. One more
+    // preparation finishes the re-key.
+    if (activeLedgerRows(registry, ledgerRows).some(isLegacyRow)) {
+      return drift(
+        registry,
+        "some ledger rows still carry a checksum from before per-dialect checksums; run one preparation to finish re-keying them",
+      );
     }
 
     const complete = hasCompleteLedger(registry, ledgerRows);
@@ -786,13 +976,16 @@ export const status = (
 const preparePostgres = (
   sql: SqlClient.SqlClient,
   registry: Registry,
+  rewriteLegacy: Effect.Effect<void, RegistryRuntimeError>,
 ): Effect.Effect<void, RegistryRuntimeError> =>
   sql.withTransaction(
     Effect.gen(function* () {
       // PostgreSQL advisory locks are database-wide and transaction-scoped.
       // The stable key serializes every CapsuleDB registry on this database.
       yield* sql`SELECT pg_advisory_xact_lock(${45_120_617})`;
-      yield* validateExistingLedger(registry, yield* readLedgerRows(sql, registry));
+      const rows = yield* readLedgerRows(sql, registry);
+      yield* validateExistingLedger(registry, rows);
+      yield* rewriteLegacy;
       yield* applyPending(sql, registry);
       yield* writeMetadata(sql, registry, providerName(registry.provider.provider));
     }),
@@ -823,8 +1016,8 @@ const prepareRegistry = (
       yield* ensureRuntimeTables(sql, registry);
     }
 
-    const ledgerRows = yield* readLedgerRows(sql, registry);
-    yield* validateExistingLedger(registry, ledgerRows);
+    const initialRows = yield* readLedgerRows(sql, registry);
+    yield* validateExistingLedger(registry, initialRows);
 
     const metadata = yield* readMetadata(sql, registry);
     const expectedProvider = providerName(registry.provider.provider);
@@ -838,6 +1031,12 @@ const prepareRegistry = (
         new ProviderMismatch({ dialect: expectedProvider, mode: metadata.provider }),
       );
     }
+
+    // Decide against the ledger as it will read after an authorized re-key.
+    // Nothing is written yet: the rewrite rides along with whichever
+    // transaction this run ends up opening.
+    const ledgerRows = upgradedLedgerRows(registry, initialRows);
+    const rewriteLegacy = rewriteLegacyRows(sql, registry, initialRows);
 
     // D1 can recover metadata after an interrupted metadata write, but only
     // when every provider-stamped claim exactly matches the current history.
@@ -853,7 +1052,11 @@ const prepareRegistry = (
         providerStamped &&
         hasCompleteLedger(registry, ledgerRows)
       ) {
+        // This recovery path is D1-only and has no transaction either, so the
+        // re-key goes after the metadata write for the same reason: a failure
+        // must leave every original checksum in place for the next run.
         yield* writeMetadata(sql, registry, expectedProvider);
+        yield* rewriteLegacy;
         return ready(registry);
       }
       return yield* Effect.fail(
@@ -881,6 +1084,11 @@ const prepareRegistry = (
     }
 
     if (metadata?.fingerprint === registry.manifest.fingerprint && complete) {
+      // Nothing to apply, so the re-key is the only write and gets its own
+      // transaction.
+      yield* registry.provider.capabilities._tag === "Transactional"
+        ? sql.withTransaction(rewriteLegacy)
+        : rewriteLegacy;
       yield* Effect.logDebug("CapsuleDB registry ready").pipe(
         Effect.annotateLogs("provider", expectedProvider),
         Effect.annotateLogs("outcome", "ready"),
@@ -906,17 +1114,23 @@ const prepareRegistry = (
     }
 
     if (registry.provider.dialect === "postgres") {
-      yield* preparePostgres(sql, registry);
+      yield* preparePostgres(sql, registry, rewriteLegacy);
     } else if (registry.provider.capabilities._tag === "Transactional") {
       yield* sql.withTransaction(
         Effect.gen(function* () {
+          yield* rewriteLegacy;
           yield* applyPending(sql, registry);
           yield* writeMetadata(sql, registry, expectedProvider);
         }),
       );
     } else {
+      // D1 has no interactive transaction, so the re-key cannot share one. It
+      // goes last instead: `applyPending` already skips a legacy row it can
+      // still identify, so a failure before this point leaves every original
+      // checksum in place and the next run retries.
       yield* applyPending(sql, registry);
       yield* writeMetadata(sql, registry, expectedProvider);
+      yield* rewriteLegacy;
     }
 
     yield* Effect.logDebug("CapsuleDB registry ready").pipe(
@@ -969,6 +1183,10 @@ export const assert = (
  * Preparation is built first, so a capsule service can never observe a database
  * whose tables are missing. The host still owns the `SqlClient` this layer
  * consumes, along with anything else the capsule layers require.
+ *
+ * With `mode: "assert"` the Layer applies nothing and fails unless the database
+ * already matches the registered history — the boot path for a host that
+ * applied `capsuledb emit` output through its own migration pipeline.
  */
 export const layer = <const Caps extends ReadonlyArray<AnyCapsule>>(
   options: Options<Caps>,
@@ -977,7 +1195,9 @@ export const layer = <const Caps extends ReadonlyArray<AnyCapsule>>(
   Failures<Caps> | RegistryRuntimeError,
   Requirements<Caps> | SqlClient.SqlClient
 > => {
-  const prepared = Layer.effectDiscard(prepare(options));
+  const prepared = Layer.effectDiscard(
+    options.mode === "assert" ? assert(options) : prepare(options),
+  );
   const services = options.capsules.map(
     (capsule) => capsule.layer as Layer.Layer<never, unknown, unknown>,
   );

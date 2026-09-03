@@ -35,6 +35,8 @@ export interface TransactionalMigration {
   readonly name: string;
   readonly checksum: string;
   readonly provider: string;
+  /** The dialect this migration's checksum is keyed to. */
+  readonly dialect: string;
   readonly operations: ReadonlyArray<Operation>;
   readonly ledgerTable: string;
 }
@@ -53,9 +55,10 @@ export const runTransactionalMigration = (
   options.sql.withTransaction(
     Effect.gen(function* () {
       yield* options.sql`INSERT INTO ${options.sql(options.ledgerTable)}
-        (capsule_id, migration_id, name, checksum, applied_at, provider)
+        (capsule_id, migration_id, name, checksum, applied_at, provider, dialect)
         VALUES (${options.capsuleId}, ${options.migrationId}, ${options.name},
-          ${options.checksum}, ${new Date().toISOString()}, ${options.provider})`;
+          ${options.checksum}, ${new Date().toISOString()}, ${options.provider},
+          ${options.dialect})`;
 
       for (const operation of options.operations) {
         if (operation._tag === "Sql") {

@@ -2,8 +2,52 @@
 
 CapsuleDB treats migration history as an append-only contract shared by the
 author and host. The runtime ledger records the capsule ID, migration ID, name,
-checksum, and application time. The metadata row records the complete manifest
-fingerprint and provider.
+checksum, dialect, and application time. The metadata row records the complete
+manifest fingerprint and provider.
+
+## Checksums cover one dialect
+
+A migration's checksum covers only the body the host actually applied. A
+PostgreSQL host verifies the PostgreSQL body; adding a SQLite body for a new
+engine, or fixing SQLite SQL, leaves that checksum untouched. This is what makes
+it safe for a library to grow engine support after it has shipped:
+
+| Change                            | PostgreSQL host | SQLite host |
+| --------------------------------- | --------------- | ----------- |
+| Add a `sqlite` body               | Ready           | Pending     |
+| Edit the `postgres` body          | Drift           | Ready       |
+| Edit the `sqlite` body            | Ready           | Drift       |
+| Add the next contiguous migration | Pending         | Pending     |
+
+`MigrationChecksumDrift` and `LedgerConflict` name the dialect whose body
+diverged, so an operator does not have to guess which engine is affected.
+
+## Upgrading a CapsuleDB 0.1 ledger
+
+Manifest v1 hashed every dialect body of a migration together, which is the
+behavior per-dialect checksums replace, and a v2 runtime cannot reproduce a v1
+checksum. Re-keying such a row therefore trusts its logical identity — capsule,
+migration ID, and name — rather than its content, which is a weaker guarantee
+than every other row gets. It is an operator decision, not a silent one:
+
+```ts
+Registry.layer({ provider: Pg.profile, capsules, allowLegacyLedgerUpgrade: true });
+```
+
+Until you set it, a v1 row reports `Drift` and preparation fails with
+`LegacyLedgerUpgradeUnauthorized`, leaving the original checksum in place.
+Confirm the applied history is the one your code still describes, then opt in
+once: the first preparation adds the `dialect` column, rewrites each pre-existing
+row to the checksum of the body this host applies, and logs what it rewrote. A
+row that already has a dialect is never touched again, and a row whose name no
+longer matches still fails closed.
+
+The upgrade is safe to interrupt. On a provider with transactions the rewrite
+rides in the same transaction as the rest of that preparation. On D1, which has
+none, it runs after every other write, so a failure leaves the original rows
+intact. Either way a row that has not been re-keyed yet is never counted as
+ready: `status` reports `Drift` and assert mode refuses to boot until one more
+preparation finishes the job.
 
 ## Normal change flow
 

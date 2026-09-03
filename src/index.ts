@@ -7,6 +7,7 @@ export * as Capsule from "./Capsule.ts";
 export * as D1 from "./D1.ts";
 export * as D1Artifact from "./D1Artifact.ts";
 export * as Dialect from "./Dialect.ts";
+export * as Emit from "./Emit.ts";
 export * as Error from "./Error.ts";
 export * as Libsql from "./Libsql.ts";
 export * as Manifest from "./Manifest.ts";

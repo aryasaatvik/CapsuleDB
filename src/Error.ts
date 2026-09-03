@@ -51,7 +51,13 @@ export class MigrationNameDrift extends Schema.TaggedError<MigrationNameDrift>()
 /** An already-known logical migration changed its canonical checksum. */
 export class MigrationChecksumDrift extends Schema.TaggedError<MigrationChecksumDrift>()(
   "MigrationChecksumDrift",
-  { migrationId: Schema.Number, expected: Schema.String, actual: Schema.String },
+  {
+    migrationId: Schema.Number,
+    /** The dialect whose body drifted; another dialect's body is unaffected. */
+    dialect: Schema.String,
+    expected: Schema.String,
+    actual: Schema.String,
+  },
 ) {}
 
 /** A published manifest's top-level fingerprint does not match its contents. */
@@ -126,6 +132,24 @@ export class D1ArtifactMigrationEdited extends Schema.TaggedError<D1ArtifactMigr
   },
 ) {}
 
+/**
+ * A ledger written before per-dialect checksums needs an explicit upgrade.
+ *
+ * A v1 checksum covered every dialect body at once under a canonicalization
+ * this version cannot reproduce, so re-keying a row means trusting its logical
+ * identity instead of its content. That is an operator decision.
+ */
+export class LegacyLedgerUpgradeUnauthorized extends Schema.TaggedError<LegacyLedgerUpgradeUnauthorized>()(
+  "LegacyLedgerUpgradeUnauthorized",
+  { capsuleId: Schema.String, migrationId: Schema.Number },
+) {}
+
+/** An emitted SQL folder no longer matches the projection CapsuleDB produces. */
+export class EmitDrift extends Schema.TaggedError<EmitDrift>()("EmitDrift", {
+  path: Schema.String,
+  reason: Schema.String,
+}) {}
+
 /** A migration requires an explicit destructive-operation authorization. */
 export class DestructiveMigrationUnauthorized extends Schema.TaggedError<DestructiveMigrationUnauthorized>()(
   "DestructiveMigrationUnauthorized",
@@ -173,6 +197,8 @@ export class NotReady extends Schema.TaggedError<NotReady>()("NotReady", {
 export class LedgerConflict extends Schema.TaggedError<LedgerConflict>()("LedgerConflict", {
   capsuleId: Schema.String,
   migrationId: Schema.Number,
+  /** The dialect whose applied body no longer matches the registered one. */
+  dialect: Schema.String,
   expected: Schema.String,
   actual: Schema.String,
 }) {}
@@ -202,6 +228,8 @@ export type CapsuleError =
   | D1ArtifactMigrationMissing
   | D1ArtifactMigrationReordered
   | D1ArtifactMigrationEdited
+  | EmitDrift
+  | LegacyLedgerUpgradeUnauthorized
   | DestructiveMigrationUnauthorized
   | DatabaseAhead
   | PartialMigration
