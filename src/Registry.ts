@@ -791,23 +791,26 @@ const applyPending = (
  * host actually applies. It runs once: a row that has a dialect is never
  * touched again.
  */
-const upgradeLegacyLedgerRows = (
-  sql: SqlClient.SqlClient,
+/**
+ * The ledger as it will read once authorized legacy rows are re-keyed.
+ *
+ * Preparation decides against this view and persists the rewrite inside the
+ * same transaction as the rest of its work, so a run that fails afterwards
+ * leaves the original rows exactly where they were.
+ */
+const upgradedLedgerRows = (
   registry: Registry,
   ledgerRows: ReadonlyArray<LedgerRow>,
-): Effect.Effect<void, RegistryRuntimeError> =>
-  Effect.gen(function* () {
-    if (!registry.allowLegacyLedgerUpgrade) return;
-    if (!ledgerRows.some(isLegacyRow)) return;
-    const rewrite = Effect.gen(function* () {
-      yield* rewriteLegacyRows(sql, registry, ledgerRows);
-    });
-    // The rewrite is all-or-nothing wherever the provider can make it so, and
-    // it runs only after the ledger and the provider stamp have validated.
-    yield* registry.provider.capabilities._tag === "Transactional"
-      ? sql.withTransaction(rewrite)
-      : rewrite;
+): ReadonlyArray<LedgerRow> => {
+  if (!registry.allowLegacyLedgerUpgrade) return ledgerRows;
+  return ledgerRows.map((row) => {
+    if (!isLegacyRow(row)) return row;
+    const body = manifestBodyOf(registry, row.capsule_id, row.migration_id);
+    return body === undefined
+      ? row
+      : { ...row, checksum: body.checksum, dialect: registry.provider.dialect };
   });
+};
 
 const rewriteLegacyRows = (
   sql: SqlClient.SqlClient,
@@ -815,6 +818,7 @@ const rewriteLegacyRows = (
   ledgerRows: ReadonlyArray<LedgerRow>,
 ): Effect.Effect<void, RegistryRuntimeError> =>
   Effect.gen(function* () {
+    if (!registry.allowLegacyLedgerUpgrade) return;
     for (const row of ledgerRows) {
       if (!isLegacyRow(row)) continue;
       const body = manifestBodyOf(registry, row.capsule_id, row.migration_id);
@@ -965,13 +969,16 @@ export const status = (
 const preparePostgres = (
   sql: SqlClient.SqlClient,
   registry: Registry,
+  rewriteLegacy: Effect.Effect<void, RegistryRuntimeError>,
 ): Effect.Effect<void, RegistryRuntimeError> =>
   sql.withTransaction(
     Effect.gen(function* () {
       // PostgreSQL advisory locks are database-wide and transaction-scoped.
       // The stable key serializes every CapsuleDB registry on this database.
       yield* sql`SELECT pg_advisory_xact_lock(${45_120_617})`;
-      yield* validateExistingLedger(registry, yield* readLedgerRows(sql, registry));
+      const rows = yield* readLedgerRows(sql, registry);
+      yield* validateExistingLedger(registry, rows);
+      yield* rewriteLegacy;
       yield* applyPending(sql, registry);
       yield* writeMetadata(sql, registry, providerName(registry.provider.provider));
     }),
@@ -1018,13 +1025,11 @@ const prepareRegistry = (
       );
     }
 
-    // Only now, with the ledger and the provider stamp both validated, is it
-    // safe to rewrite anything: a provider mismatch must not leave a re-keyed
-    // row behind.
-    yield* upgradeLegacyLedgerRows(sql, registry, initialRows);
-    const ledgerRows = initialRows.some(isLegacyRow)
-      ? yield* readLedgerRows(sql, registry)
-      : initialRows;
+    // Decide against the ledger as it will read after an authorized re-key.
+    // Nothing is written yet: the rewrite rides along with whichever
+    // transaction this run ends up opening.
+    const ledgerRows = upgradedLedgerRows(registry, initialRows);
+    const rewriteLegacy = rewriteLegacyRows(sql, registry, initialRows);
 
     // D1 can recover metadata after an interrupted metadata write, but only
     // when every provider-stamped claim exactly matches the current history.
@@ -1040,6 +1045,7 @@ const prepareRegistry = (
         providerStamped &&
         hasCompleteLedger(registry, ledgerRows)
       ) {
+        yield* rewriteLegacy;
         yield* writeMetadata(sql, registry, expectedProvider);
         return ready(registry);
       }
@@ -1068,6 +1074,11 @@ const prepareRegistry = (
     }
 
     if (metadata?.fingerprint === registry.manifest.fingerprint && complete) {
+      // Nothing to apply, so the re-key is the only write and gets its own
+      // transaction.
+      yield* registry.provider.capabilities._tag === "Transactional"
+        ? sql.withTransaction(rewriteLegacy)
+        : rewriteLegacy;
       yield* Effect.logDebug("CapsuleDB registry ready").pipe(
         Effect.annotateLogs("provider", expectedProvider),
         Effect.annotateLogs("outcome", "ready"),
@@ -1093,15 +1104,18 @@ const prepareRegistry = (
     }
 
     if (registry.provider.dialect === "postgres") {
-      yield* preparePostgres(sql, registry);
+      yield* preparePostgres(sql, registry, rewriteLegacy);
     } else if (registry.provider.capabilities._tag === "Transactional") {
       yield* sql.withTransaction(
         Effect.gen(function* () {
+          yield* rewriteLegacy;
           yield* applyPending(sql, registry);
           yield* writeMetadata(sql, registry, expectedProvider);
         }),
       );
     } else {
+      // D1 has no interactive transaction; each write is its own atomic unit.
+      yield* rewriteLegacy;
       yield* applyPending(sql, registry);
       yield* writeMetadata(sql, registry, expectedProvider);
     }

@@ -22,6 +22,9 @@ import { ledgerTables } from "./internal/transactional-migrator.ts";
  */
 export const INDEX_PATH = "capsuledb.emit.json";
 
+/** The first bytes of every emitted `.sql` file. */
+export const GENERATED_MARKER = "-- capsuledb:";
+
 export const EmitIndex = Schema.Struct({
   version: Schema.Literal(1),
   dialect: Schema.Union([Schema.Literal("postgres"), Schema.Literal("sqlite")]),
@@ -95,6 +98,9 @@ const statementsOf = (body: ManifestBody): Effect.Effect<ReadonlyArray<string>, 
 
 const header = (lines: ReadonlyArray<string>): string =>
   lines.map((line) => `-- ${line}`).join("\n");
+
+/** Whether a file still looks like the emitted file an index claims it is. */
+export const isGenerated = (contents: string): boolean => contents.startsWith(GENERATED_MARKER);
 
 const block = (statements: ReadonlyArray<string>): string =>
   statements.map((statement) => `${statement};`).join("\n\n");

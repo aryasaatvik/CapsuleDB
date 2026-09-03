@@ -106,9 +106,11 @@ Registry.layer({ provider: Pg.profile, capsules: [capsule], mode: "assert" });
 | Drift caught               | at boot                               | at `check` time in CI, and again at boot |
 
 `capsuledb.emit.json` records which files CapsuleDB owns, so an emit folder can
-be shared with the host's own migrations. Regeneration replaces the files it
-owns and deletes the ones a rename made obsolete; `check` ignores everything the
-index does not claim. Commit the index with the SQL.
+be shared with the host's own migrations. Regeneration replaces the files it owns
+and deletes the ones a rename made obsolete, but only when the index claims the
+path _and_ the file still carries the generated header — take a claimed path over
+with your own SQL and `emit` stops and tells you rather than deleting it. `check`
+ignores everything the index does not claim. Commit the index with the SQL.
 
 Run `check` in CI. It fails when the installed library has a migration the
 folder does not, when a file was edited, when a file belongs to another dialect,

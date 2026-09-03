@@ -180,6 +180,28 @@ describe("capsuledb emit", () => {
     assert.strictEqual(entries.includes("9000_host_owned.sql"), true);
   });
 
+  it("refuses to delete a claimed path the host has taken over", async () => {
+    const out = await mkdtemp(join(tmpdir(), "capsuledb-emit-"));
+    await emitTo(out, "postgres");
+
+    // The index claims this path, but its contents are now the host's.
+    const taken = "0001_capsule_reference_2e_tokens_old_name.sql";
+    await writeFile(join(out, taken), "SELECT 'now mine';\n");
+    const index = JSON.parse(await readFile(join(out, "capsuledb.emit.json"), "utf8")) as {
+      files: Array<string>;
+    };
+    index.files.push(taken);
+    await writeFile(join(out, "capsuledb.emit.json"), `${JSON.stringify(index, null, 2)}\n`);
+
+    const regenerated = await emitTo(out, "postgres");
+    assert.strictEqual(Exit.isFailure(regenerated.exit), true);
+    assert.strictEqual(
+      (JSON.parse(regenerated.logs[0] ?? "{}") as { error?: { _tag?: string } }).error?._tag,
+      "InvalidDefinition",
+    );
+    assert.strictEqual(await readFile(join(out, taken), "utf8"), "SELECT 'now mine';\n");
+  });
+
   it.effect("boots in assert mode after the emitted SQL is applied on SQLite", () =>
     Effect.gen(function* () {
       const out = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "capsuledb-emit-")));

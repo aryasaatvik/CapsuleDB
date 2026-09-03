@@ -38,9 +38,11 @@ Until you set it, a v1 row reports `Drift` and preparation fails with
 `LegacyLedgerUpgradeUnauthorized`, leaving the original checksum in place.
 Confirm the applied history is the one your code still describes, then opt in
 once: the first preparation adds the `dialect` column, rewrites each pre-existing
-row to the checksum of the body this host applies, and logs what it rewrote. A
-row that already has a dialect is never touched again, and a row whose name no
-longer matches still fails closed.
+row to the checksum of the body this host applies, and logs what it rewrote. The
+rewrite rides in the same transaction as the rest of that preparation, so a run
+that fails afterwards leaves the original rows untouched. A row that already has
+a dialect is never touched again, and a row whose name no longer matches still
+fails closed.
 
 ## Normal change flow
 
