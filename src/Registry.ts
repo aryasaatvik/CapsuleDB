@@ -18,7 +18,13 @@ import {
   RegistryCorrupt,
 } from "./Error.ts";
 import { resolve as resolveMigration, type Migration, type Operation } from "./Migration.ts";
-import { buildManifest, type Manifest, type ManifestError } from "./Manifest.ts";
+import {
+  bodyFor,
+  buildManifest,
+  type Manifest,
+  type ManifestBody,
+  type ManifestError,
+} from "./Manifest.ts";
 import type { PendingMigration, Readiness, Ready } from "./Readiness.ts";
 import {
   makeProviderProfile,
@@ -195,6 +201,12 @@ interface LedgerRow {
   readonly checksum: string;
   readonly applied_at: string;
   readonly provider: string;
+  /**
+   * The dialect this row's checksum is keyed to. `null` marks a manifest v1
+   * row, whose checksum covered every dialect body at once; those rows are
+   * upgraded in place the first time a v2 runtime prepares against them.
+   */
+  readonly dialect: string | null;
 }
 
 interface MetadataRow {
@@ -213,6 +225,7 @@ const LedgerRowSchema = Schema.Struct({
   checksum: Schema.String.pipe(Schema.check(Schema.isLengthBetween(64, 64))),
   applied_at: AppliedAt,
   provider: Schema.String,
+  dialect: Schema.NullOr(Schema.String),
 });
 const MetadataRowSchema = Schema.Struct({
   id: Schema.Literal(1),
@@ -235,13 +248,42 @@ const ensureRuntimeTables = (
       checksum TEXT NOT NULL,
       applied_at TEXT NOT NULL,
       provider TEXT NOT NULL DEFAULT 'sqlite',
+      dialect TEXT,
       PRIMARY KEY (capsule_id, migration_id)
     )`);
+    yield* addDialectColumn(sql, registry);
     yield* sql.unsafe(`CREATE TABLE IF NOT EXISTS "${registry.metadata}" (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       fingerprint TEXT NOT NULL,
       provider TEXT NOT NULL
     )`);
+  });
+
+/**
+ * Add the manifest v2 `dialect` column to a ledger created by an earlier
+ * release. The catalog check keeps this idempotent without swallowing real
+ * errors from `ALTER TABLE`.
+ */
+const addDialectColumn = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+): Effect.Effect<void, SqlError> =>
+  Effect.gen(function* () {
+    const rows =
+      registry.provider.dialect === "postgres"
+        ? yield* sql`SELECT COUNT(*)::int AS count FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = ${registry.ledger} AND column_name = 'dialect'`
+        : yield* sql`SELECT COUNT(*) AS count FROM pragma_table_info(${registry.ledger})
+            WHERE name = 'dialect'`;
+    const count = rows[0];
+    if (count === undefined) return;
+    const decoded = yield* Effect.try({
+      try: () => Schema.decodeUnknownSync(CatalogCountSchema)(count),
+      catch: () => undefined,
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (decoded !== undefined && Number(decoded.count) > 0) return;
+    yield* sql.unsafe(`ALTER TABLE "${registry.ledger}" ADD COLUMN dialect TEXT`);
   });
 
 /** Inspect catalog metadata without creating or mutating CapsuleDB tables. */
@@ -291,7 +333,8 @@ const readLedger = (
   migrationId: number,
 ): Effect.Effect<LedgerRow | undefined, SqlError | RegistryCorrupt> =>
   Effect.gen(function* () {
-    const rows = yield* sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider
+    const rows =
+      yield* sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider, dialect
       FROM ${sql(registry.ledger)}
       WHERE capsule_id = ${capsuleId} AND migration_id = ${migrationId}`;
     const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(LedgerRowSchema))(rows).pipe(
@@ -306,7 +349,7 @@ const readLedgerRows = (
   sql: SqlClient.SqlClient,
   registry: Registry,
 ): Effect.Effect<ReadonlyArray<LedgerRow>, SqlError | RegistryCorrupt> =>
-  sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider
+  sql`SELECT capsule_id, migration_id, name, checksum, applied_at, provider, dialect
     FROM ${sql(registry.ledger)} ORDER BY capsule_id, migration_id`.pipe(
     Effect.flatMap((rows) =>
       Schema.decodeUnknownEffect(Schema.Array(LedgerRowSchema))(rows).pipe(
@@ -332,6 +375,22 @@ const manifestMigrationOf = (registry: Registry, capsuleId: string, migrationId:
     ?.migrations.find((candidate) => candidate.id === migrationId);
 
 /**
+ * The manifest body this registry's dialect applies, and the only checksum a
+ * host on this dialect ever verifies.
+ */
+const manifestBodyOf = (
+  registry: Registry,
+  capsuleId: string,
+  migrationId: number,
+): ManifestBody | undefined => {
+  const migration = manifestMigrationOf(registry, capsuleId, migrationId);
+  return migration === undefined ? undefined : bodyFor(migration, registry.provider.dialect);
+};
+
+/** A v1 ledger row predates per-dialect checksums and is upgraded in place. */
+const isLegacyRow = (row: LedgerRow): boolean => row.dialect === null;
+
+/**
  * A metadata fingerprint is only meaningful when every expected active ledger
  * row is present and still agrees with the current manifest. Rows for capsules
  * removed from the registry are deliberately ignored and preserved.
@@ -342,21 +401,24 @@ const hasCompleteLedger = (registry: Registry, ledgerRows: ReadonlyArray<LedgerR
 
   for (const capsule of registry.capsules) {
     for (const migration of capsule.migrations) {
-      const manifestMigration = manifestMigrationOf(registry, capsule.id, migration.id);
+      const body = manifestBodyOf(registry, capsule.id, migration.id);
       const ledgerRow = activeRows.find(
         (candidate) =>
           candidate.capsule_id === capsule.id && candidate.migration_id === migration.id,
       );
       if (
-        manifestMigration === undefined ||
+        body === undefined ||
         ledgerRow === undefined ||
         ledgerRow.name !== migration.name ||
-        ledgerRow.checksum !== manifestMigration.checksum ||
         ledgerRow.provider !== providerName(registry.provider.provider) ||
         ledgerRow.applied_at.length === 0
       ) {
         return false;
       }
+      // A v1 row's checksum covered every dialect at once, so it cannot be
+      // compared here. Its name and identity still have to match, and the next
+      // preparation rewrites it to this dialect's checksum.
+      if (!isLegacyRow(ledgerRow) && ledgerRow.checksum !== body.checksum) return false;
     }
   }
   return true;
@@ -376,13 +438,13 @@ const validateExistingLedger = (
       if (capsule === undefined) continue;
 
       const migration = capsule.migrations.find((candidate) => candidate.id === row.migration_id);
-      const manifestMigration = manifestMigrationOf(registry, row.capsule_id, row.migration_id);
+      const body = manifestBodyOf(registry, row.capsule_id, row.migration_id);
       if (row.provider !== expectedProvider) {
         return yield* Effect.fail(
           new ProviderMismatch({ dialect: expectedProvider, mode: row.provider }),
         );
       }
-      if (migration === undefined || manifestMigration === undefined) {
+      if (migration === undefined || body === undefined) {
         return yield* Effect.fail(
           new DatabaseAhead({
             capsuleId: row.capsule_id,
@@ -391,12 +453,26 @@ const validateExistingLedger = (
           }),
         );
       }
-      if (row.checksum !== manifestMigration.checksum || row.name !== migration.name) {
+      if (row.name !== migration.name) {
         return yield* Effect.fail(
           new LedgerConflict({
             capsuleId: row.capsule_id,
             migrationId: row.migration_id,
-            expected: manifestMigration.checksum,
+            dialect: registry.provider.dialect,
+            expected: body.checksum,
+            actual: row.checksum,
+          }),
+        );
+      }
+      // A v1 row carries a checksum over every dialect body, which no v2
+      // manifest can reproduce. Its logical identity is what carries over.
+      if (!isLegacyRow(row) && row.checksum !== body.checksum) {
+        return yield* Effect.fail(
+          new LedgerConflict({
+            capsuleId: row.capsule_id,
+            migrationId: row.migration_id,
+            dialect: registry.provider.dialect,
+            expected: body.checksum,
             actual: row.checksum,
           }),
         );
@@ -448,6 +524,7 @@ const unauthorizedDestructive = (
     : Effect.void;
 
 const ledgerConflict = (
+  registry: Registry,
   capsule: AnyCapsule,
   migration: Migration,
   expected: string,
@@ -456,6 +533,7 @@ const ledgerConflict = (
   new LedgerConflict({
     capsuleId: capsule.id,
     migrationId: migration.id,
+    dialect: registry.provider.dialect,
     expected,
     actual,
   });
@@ -476,6 +554,7 @@ const applyTransactional = (
       name: migration.name,
       checksum,
       provider: providerName(registry.provider.provider),
+      dialect: registry.provider.dialect,
       operations,
       ledgerTable: registry.ledger,
     }).pipe(
@@ -521,6 +600,7 @@ const applyD1 = (
       name: migration.name,
       checksum,
       provider: providerName(registry.provider.provider),
+      dialect: registry.provider.dialect,
       operations,
       ledgerTable: registry.ledger,
     }).pipe(
@@ -577,7 +657,9 @@ const reconcileFailedClaim = (
       Effect.annotateLogs("migration_id", String(migration.id)),
       Effect.annotateLogs("outcome", "divergence"),
     );
-    return yield* Effect.fail(ledgerConflict(capsule, migration, checksum, reread.checksum));
+    return yield* Effect.fail(
+      ledgerConflict(registry, capsule, migration, checksum, reread.checksum),
+    );
   });
 
 const missingManifestMigration = (
@@ -610,8 +692,8 @@ const preflightD1Pending = (
         );
         if (existing !== undefined) continue;
 
-        const manifestMigration = manifestMigrationOf(registry, capsule.id, migration.id);
-        if (manifestMigration === undefined) {
+        const body = manifestBodyOf(registry, capsule.id, migration.id);
+        if (body === undefined) {
           return yield* Effect.fail(missingManifestMigration(registry, capsule.id, migration.id));
         }
         yield* compileD1Migration({
@@ -620,8 +702,9 @@ const preflightD1Pending = (
           capsuleId: capsule.id,
           migrationId: migration.id,
           name: migration.name,
-          checksum: manifestMigration.checksum,
+          checksum: body.checksum,
           provider: providerName(registry.provider.provider),
+          dialect: registry.provider.dialect,
           operations: yield* migrationOperations(registry, migration),
           ledgerTable: registry.ledger,
         });
@@ -636,28 +719,60 @@ const applyPending = (
   Effect.gen(function* () {
     for (const capsule of registry.capsules) {
       for (const migration of capsule.migrations) {
-        const manifestMigration = manifestMigrationOf(registry, capsule.id, migration.id);
-        if (manifestMigration === undefined) {
+        const body = manifestBodyOf(registry, capsule.id, migration.id);
+        if (body === undefined) {
           return yield* Effect.fail(missingManifestMigration(registry, capsule.id, migration.id));
         }
         const existing = yield* readLedger(sql, registry, capsule.id, migration.id);
         if (existing !== undefined) {
           if (
-            existing.checksum !== manifestMigration.checksum ||
-            existing.name !== migration.name
+            existing.name !== migration.name ||
+            (!isLegacyRow(existing) && existing.checksum !== body.checksum)
           ) {
             return yield* Effect.fail(
-              ledgerConflict(capsule, migration, manifestMigration.checksum, existing.checksum),
+              ledgerConflict(registry, capsule, migration, body.checksum, existing.checksum),
             );
           }
           continue;
         }
         if (registry.provider.capabilities._tag === "AtomicBatch") {
-          yield* applyD1(sql, registry, capsule, migration, manifestMigration.checksum);
+          yield* applyD1(sql, registry, capsule, migration, body.checksum);
         } else {
-          yield* applyTransactional(sql, registry, capsule, migration, manifestMigration.checksum);
+          yield* applyTransactional(sql, registry, capsule, migration, body.checksum);
         }
       }
+    }
+  });
+
+/**
+ * Rewrite manifest v1 ledger rows to this dialect's checksum.
+ *
+ * A v1 checksum hashed every dialect body of a migration together, which is
+ * exactly the bug per-dialect checksums fix, and no v2 manifest can reproduce
+ * it. The upgrade therefore trusts the row's logical identity — capsule, id,
+ * and name, all already validated — and re-keys the checksum to the body this
+ * host actually applies. It runs once: a row that has a dialect is never
+ * touched again.
+ */
+const upgradeLegacyLedgerRows = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+  ledgerRows: ReadonlyArray<LedgerRow>,
+): Effect.Effect<void, RegistryRuntimeError> =>
+  Effect.gen(function* () {
+    for (const row of ledgerRows) {
+      if (!isLegacyRow(row)) continue;
+      const body = manifestBodyOf(registry, row.capsule_id, row.migration_id);
+      if (body === undefined) continue;
+
+      yield* sql`UPDATE ${sql(registry.ledger)}
+        SET checksum = ${body.checksum}, dialect = ${registry.provider.dialect}
+        WHERE capsule_id = ${row.capsule_id} AND migration_id = ${row.migration_id}`;
+      yield* Effect.logInfo("CapsuleDB ledger row upgraded to a per-dialect checksum").pipe(
+        Effect.annotateLogs("capsule_id", row.capsule_id),
+        Effect.annotateLogs("migration_id", String(row.migration_id)),
+        Effect.annotateLogs("dialect", registry.provider.dialect),
+      );
     }
   });
 
@@ -823,8 +938,12 @@ const prepareRegistry = (
       yield* ensureRuntimeTables(sql, registry);
     }
 
-    const ledgerRows = yield* readLedgerRows(sql, registry);
-    yield* validateExistingLedger(registry, ledgerRows);
+    const initialRows = yield* readLedgerRows(sql, registry);
+    yield* validateExistingLedger(registry, initialRows);
+    yield* upgradeLegacyLedgerRows(sql, registry, initialRows);
+    const ledgerRows = initialRows.some(isLegacyRow)
+      ? yield* readLedgerRows(sql, registry)
+      : initialRows;
 
     const metadata = yield* readMetadata(sql, registry);
     const expectedProvider = providerName(registry.provider.provider);

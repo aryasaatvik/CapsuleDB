@@ -22,6 +22,8 @@ export interface D1Migration {
   readonly name: string;
   readonly checksum: string;
   readonly provider: string;
+  /** The dialect this migration's checksum is keyed to. */
+  readonly dialect: string;
   readonly operations: ReadonlyArray<Operation>;
   readonly ledgerTable: string;
 }
@@ -64,9 +66,10 @@ export const compileD1Migration = (
 
     const statements: Array<Statement.Statement<unknown>> = [
       options.sql`INSERT INTO ${options.sql(options.ledgerTable)}
-        (capsule_id, migration_id, name, checksum, applied_at, provider)
+        (capsule_id, migration_id, name, checksum, applied_at, provider, dialect)
         VALUES (${options.capsuleId}, ${options.migrationId}, ${options.name},
-          ${options.checksum}, ${new Date().toISOString()}, ${options.provider})`,
+          ${options.checksum}, ${new Date().toISOString()}, ${options.provider},
+          ${options.dialect})`,
       ...options.operations.flatMap((operation) =>
         operation._tag === "Sql"
           ? operation.statements.map((statement) => options.sql.unsafe(statement))

@@ -51,7 +51,13 @@ export class MigrationNameDrift extends Schema.TaggedError<MigrationNameDrift>()
 /** An already-known logical migration changed its canonical checksum. */
 export class MigrationChecksumDrift extends Schema.TaggedError<MigrationChecksumDrift>()(
   "MigrationChecksumDrift",
-  { migrationId: Schema.Number, expected: Schema.String, actual: Schema.String },
+  {
+    migrationId: Schema.Number,
+    /** The dialect whose body drifted; another dialect's body is unaffected. */
+    dialect: Schema.String,
+    expected: Schema.String,
+    actual: Schema.String,
+  },
 ) {}
 
 /** A published manifest's top-level fingerprint does not match its contents. */
@@ -173,6 +179,8 @@ export class NotReady extends Schema.TaggedError<NotReady>()("NotReady", {
 export class LedgerConflict extends Schema.TaggedError<LedgerConflict>()("LedgerConflict", {
   capsuleId: Schema.String,
   migrationId: Schema.Number,
+  /** The dialect whose applied body no longer matches the registered one. */
+  dialect: Schema.String,
   expected: Schema.String,
   actual: Schema.String,
 }) {}

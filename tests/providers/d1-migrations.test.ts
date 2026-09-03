@@ -219,6 +219,7 @@ describe("D1 atomic migration runner", () => {
               new LedgerConflict({
                 capsuleId: "d1.name-conflict",
                 migrationId: 1,
+                dialect: "sqlite",
                 expected: "ignored",
                 actual: "ignored",
               })._tag,

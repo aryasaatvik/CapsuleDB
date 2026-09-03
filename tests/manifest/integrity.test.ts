@@ -54,6 +54,7 @@ describe("deterministic manifest integrity", () => {
         manifestErrorTag(checksumError),
         new MigrationChecksumDrift({
           migrationId: 1,
+          dialect: "postgres",
           expected: "a".repeat(64),
           actual: "b".repeat(64),
         })._tag,

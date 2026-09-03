@@ -41,15 +41,21 @@ export const ManifestOperation = Schema.TaggedUnion({
 
 export type ManifestOperation = typeof ManifestOperation.Type;
 
-/** The ordered work one dialect applies for one logical migration. */
+/**
+ * The ordered work one dialect applies for one logical migration.
+ *
+ * The checksum covers only this dialect's body, so adding a SQLite body or
+ * fixing PostgreSQL SQL never changes what a host on the other engine verifies.
+ */
 export const ManifestBody = Schema.Struct({
   dialect: ManifestDialect,
+  checksum: Checksum,
   operations: Schema.Array(ManifestOperation),
 });
 
 export type ManifestBody = typeof ManifestBody.Type;
 
-/** One logical migration's checksum and per-dialect bodies. */
+/** One logical migration and its independently checksummed dialect bodies. */
 export const ManifestMigration = Schema.Struct({
   id: Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)), Schema.brand("MigrationId")),
   name: Schema.String.pipe(
@@ -61,7 +67,6 @@ export const ManifestMigration = Schema.Struct({
     Schema.brand("MigrationName"),
   ),
   risk: Schema.Union([Schema.Literal("additive"), Schema.Literal("destructive")]),
-  checksum: Checksum,
   bodies: Schema.Array(ManifestBody),
 });
 
@@ -78,7 +83,8 @@ export type ManifestCapsule = typeof ManifestCapsule.Type;
 
 /** The complete static manifest persisted and read by runtime preparation. */
 export const Manifest = Schema.Struct({
-  version: Schema.Literal(1),
+  /** v2 checksums each dialect body separately; v1 hashed every body together. */
+  version: Schema.Literal(2),
   fingerprint: Checksum,
   capsules: Schema.Array(ManifestCapsule),
 });
@@ -112,44 +118,40 @@ const manifestOperation = (operation: Operation): ManifestOperation =>
     ? { _tag: "Sql", statements: [...operation.statements] }
     : { _tag: "Effect", revision: operation.revision };
 
-const manifestBodies = (migration: Migration): ReadonlyArray<ManifestBody> =>
-  supportedDialects(migration)
-    .map((dialect) => ({
-      dialect,
-      operations: (resolve(migration, dialect) ?? []).map(manifestOperation),
-    }))
-    .filter((body) => body.operations.length > 0);
+const bodyOperations = (migration: Migration, dialect: Dialect): ReadonlyArray<ManifestOperation> =>
+  (resolve(migration, dialect) ?? []).map(manifestOperation);
 
 const canonicalOperation = (operation: ManifestOperation): Readonly<Record<string, unknown>> =>
   operation._tag === "Sql"
     ? { mode: operation._tag, statements: operation.statements }
     : { mode: operation._tag, revision: operation.revision };
 
-const canonicalBodies = (bodies: ReadonlyArray<ManifestBody>) =>
-  [...bodies]
-    .sort((left, right) => left.dialect.localeCompare(right.dialect))
-    .map((body) => ({
-      dialect: body.dialect,
-      operations: body.operations.map(canonicalOperation),
-    }));
-
-const canonicalMigration = (
+/**
+ * The exact bytes one dialect's checksum covers.
+ *
+ * Nothing about another dialect appears here. That is the whole point: a host
+ * running PostgreSQL verifies the PostgreSQL body it applied, so shipping a new
+ * SQLite body cannot invalidate its ledger.
+ */
+const canonicalBody = (
   capsuleId: string,
   migration: Pick<Migration, "id" | "name" | "risk">,
-  bodies: ReadonlyArray<ManifestBody>,
-) =>
+  dialect: Dialect,
+  operations: ReadonlyArray<ManifestOperation>,
+): string =>
   JSON.stringify({
     capsuleId,
     migrationId: migration.id,
     name: migration.name,
     risk: migration.risk,
-    bodies: canonicalBodies(bodies),
+    dialect,
+    operations: operations.map(canonicalOperation),
   });
 
-const canonicalManifestMigration = (capsuleId: string, migration: ManifestMigration): string =>
-  canonicalMigration(capsuleId, migration, migration.bodies);
+const sortedBodies = (bodies: ReadonlyArray<ManifestBody>): ReadonlyArray<ManifestBody> =>
+  [...bodies].sort((left, right) => left.dialect.localeCompare(right.dialect));
 
-const canonicalManifest = (version: 1, capsules: ReadonlyArray<ManifestCapsule>): string =>
+const canonicalManifest = (version: 2, capsules: ReadonlyArray<ManifestCapsule>): string =>
   JSON.stringify({
     version,
     capsules: capsules.map((capsule) => ({
@@ -159,8 +161,11 @@ const canonicalManifest = (version: 1, capsules: ReadonlyArray<ManifestCapsule>)
         id: migration.id,
         name: migration.name,
         risk: migration.risk,
-        checksum: migration.checksum,
-        bodies: canonicalBodies(migration.bodies),
+        bodies: sortedBodies(migration.bodies).map((body) => ({
+          dialect: body.dialect,
+          checksum: body.checksum,
+          operations: body.operations.map(canonicalOperation),
+        })),
       })),
     })),
   });
@@ -206,7 +211,7 @@ const validateCapsuleMigrations = (
     }
 
     for (const migration of capsule.migrations) {
-      if (manifestBodies(migration).length === 0) {
+      if (supportedDialects(migration).length === 0) {
         return yield* Effect.fail(
           new InvalidDefinition({
             subject: `migration ${migration.id}`,
@@ -261,14 +266,23 @@ export const buildManifest = (
       yield* validateCapsuleMigrations(capsule);
       const migrations: Array<ManifestMigration> = [];
       for (const migration of capsule.migrations) {
-        const bodies = manifestBodies(migration);
-        const checksum = yield* sha256(canonicalMigration(capsule.id, migration, bodies));
+        const bodies: Array<ManifestBody> = [];
+        for (const dialect of supportedDialects(migration)) {
+          const operations = bodyOperations(migration, dialect);
+          if (operations.length === 0) continue;
+          bodies.push({
+            dialect,
+            checksum: Schema.decodeUnknownSync(Checksum)(
+              yield* sha256(canonicalBody(capsule.id, migration, dialect, operations)),
+            ),
+            operations,
+          });
+        }
         migrations.push(
           yield* decodeManifestMigration({
             id: migration.id,
             name: migration.name,
             risk: migration.risk,
-            checksum,
             bodies,
           }),
         );
@@ -282,7 +296,7 @@ export const buildManifest = (
 
     capsules.sort((left, right) => left.id.localeCompare(right.id));
     const withoutFingerprint = {
-      version: 1 as const,
+      version: 2 as const,
       capsules,
     };
     const fingerprint = yield* sha256(canonicalManifest(withoutFingerprint.version, capsules));
@@ -378,15 +392,20 @@ const verifyManifest = (manifest: Manifest): Effect.Effect<Manifest, ManifestErr
     yield* validatePublishedStructure(manifest);
     for (const capsule of manifest.capsules) {
       for (const migration of capsule.migrations) {
-        const actual = yield* sha256(canonicalManifestMigration(capsule.id, migration));
-        if (actual !== migration.checksum) {
-          return yield* Effect.fail(
-            new MigrationChecksumDrift({
-              expected: actual,
-              actual: migration.checksum,
-              migrationId: migration.id,
-            }),
+        for (const body of migration.bodies) {
+          const actual = yield* sha256(
+            canonicalBody(capsule.id, migration, body.dialect, body.operations),
           );
+          if (actual !== body.checksum) {
+            return yield* Effect.fail(
+              new MigrationChecksumDrift({
+                expected: actual,
+                actual: body.checksum,
+                migrationId: migration.id,
+                dialect: body.dialect,
+              }),
+            );
+          }
         }
       }
     }
@@ -522,14 +541,28 @@ export const validateManifest = (
             }),
           );
         }
-        if (actual.checksum !== expected.checksum) {
-          return yield* Effect.fail(
-            new MigrationChecksumDrift({
-              migrationId: actual.id,
-              expected: expected.checksum,
-              actual: actual.checksum,
-            }),
-          );
+        // Only the dialects the expected manifest already recorded are
+        // compared. A body added for a new engine is an addition, not drift.
+        for (const expectedBody of expected.bodies) {
+          const actualBody = bodyFor(actual, expectedBody.dialect);
+          if (actualBody === undefined) {
+            return yield* Effect.fail(
+              new MissingProviderMigration({
+                migrationId: actual.id,
+                dialect: expectedBody.dialect,
+              }),
+            );
+          }
+          if (actualBody.checksum !== expectedBody.checksum) {
+            return yield* Effect.fail(
+              new MigrationChecksumDrift({
+                migrationId: actual.id,
+                dialect: expectedBody.dialect,
+                expected: expectedBody.checksum,
+                actual: actualBody.checksum,
+              }),
+            );
+          }
         }
       }
     }

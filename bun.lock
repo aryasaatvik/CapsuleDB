@@ -26,8 +26,14 @@
         "vitest": "4.1.11",
       },
       "peerDependencies": {
+        "@effect/sql-libsql": ">=4.0.0-rc.111 <5",
+        "@effect/sql-sqlite-bun": ">=4.0.0-rc.111 <5",
         "effect": ">=4.0.0-rc.111 <5",
       },
+      "optionalPeers": [
+        "@effect/sql-libsql",
+        "@effect/sql-sqlite-bun",
+      ],
     },
   },
   "packages": {

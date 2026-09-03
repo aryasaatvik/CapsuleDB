@@ -274,6 +274,7 @@ describe("registry migration lifecycle", () => {
           new LedgerConflict({
             capsuleId: "lifecycle.name-conflict",
             migrationId: 1,
+            dialect: "sqlite",
             expected: "ignored",
             actual: "ignored",
           })._tag,

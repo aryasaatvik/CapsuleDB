@@ -2,8 +2,35 @@
 
 CapsuleDB treats migration history as an append-only contract shared by the
 author and host. The runtime ledger records the capsule ID, migration ID, name,
-checksum, and application time. The metadata row records the complete manifest
-fingerprint and provider.
+checksum, dialect, and application time. The metadata row records the complete
+manifest fingerprint and provider.
+
+## Checksums cover one dialect
+
+A migration's checksum covers only the body the host actually applied. A
+PostgreSQL host verifies the PostgreSQL body; adding a SQLite body for a new
+engine, or fixing SQLite SQL, leaves that checksum untouched. This is what makes
+it safe for a library to grow engine support after it has shipped:
+
+| Change                            | PostgreSQL host | SQLite host |
+| --------------------------------- | --------------- | ----------- |
+| Add a `sqlite` body               | Ready           | Pending     |
+| Edit the `postgres` body          | Drift           | Ready       |
+| Edit the `sqlite` body            | Ready           | Drift       |
+| Add the next contiguous migration | Pending         | Pending     |
+
+`MigrationChecksumDrift` and `LedgerConflict` name the dialect whose body
+diverged, so an operator does not have to guess which engine is affected.
+
+## Upgrading a CapsuleDB 0.1 ledger
+
+Manifest v1 hashed every dialect body of a migration together, which is the
+behavior per-dialect checksums replace, and a v2 runtime cannot reproduce a v1
+checksum. The first v2 preparation therefore adds a `dialect` column to the
+ledger and rewrites each pre-existing row to the checksum of the body this host
+applies. The upgrade is automatic, runs once per row, and still fails closed if
+a row's capsule, migration ID, or name no longer matches the registered history.
+It logs one entry per rewritten row at info level.
 
 ## Normal change flow
 

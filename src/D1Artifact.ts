@@ -140,7 +140,7 @@ const d1Body = (
       namespace: capsule.namespace,
       migrationId: migration.id,
       name: migration.name,
-      checksum: migration.checksum,
+      checksum: body.checksum,
       source: statements.join("\n"),
       statements,
     };
