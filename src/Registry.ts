@@ -10,6 +10,7 @@ import {
   DuplicateMigrationId,
   InvalidDefinition,
   LedgerConflict,
+  LegacyLedgerUpgradeUnauthorized,
   MissingProviderMigration,
   NotReady,
   PartialMigration,
@@ -50,6 +51,16 @@ export interface Options<Caps extends ReadonlyArray<AnyCapsule> = ReadonlyArray<
   readonly mode?: "prepare" | "assert";
   /** Permit migrations marked `destructive`; defaults to `false`. */
   readonly allowDestructive?: boolean;
+  /**
+   * Permit re-keying a ledger written before per-dialect checksums; defaults to
+   * `false`.
+   *
+   * A manifest v1 checksum covered every dialect body at once under a
+   * canonicalization this version cannot reproduce, so the upgrade can only
+   * trust a row's logical identity — capsule, migration id, and name — and not
+   * its content. Confirm the applied history is unchanged, then opt in.
+   */
+  readonly allowLegacyLedgerUpgrade?: boolean;
   /**
    * Prefix for the two tables CapsuleDB's own lifecycle owns; defaults to
    * `capsuledb`. It is part of the physical layout, so two registries can share
@@ -110,6 +121,7 @@ export type RegistryRuntimeError =
   | LedgerConflict
   | DatabaseAhead
   | DestructiveMigrationUnauthorized
+  | LegacyLedgerUpgradeUnauthorized
   | PartialMigration
   | PreparationFailed;
 
@@ -118,6 +130,7 @@ interface Registry {
   readonly provider: ProviderProfile;
   readonly capsules: ReadonlyArray<AnyCapsule>;
   readonly allowDestructive: boolean;
+  readonly allowLegacyLedgerUpgrade: boolean;
   readonly ledger: string;
   readonly metadata: string;
   readonly manifest: Manifest;
@@ -190,6 +203,7 @@ const resolve = (options: Options): Effect.Effect<Registry, RegistryError> =>
       provider,
       capsules: Object.freeze([...options.capsules]),
       allowDestructive: options.allowDestructive ?? false,
+      allowLegacyLedgerUpgrade: options.allowLegacyLedgerUpgrade ?? false,
       ledger: tables.ledger,
       metadata: tables.metadata,
       manifest: yield* buildManifest({ capsules: options.capsules }),
@@ -421,10 +435,13 @@ const hasCompleteLedger = (registry: Registry, ledgerRows: ReadonlyArray<LedgerR
       ) {
         return false;
       }
-      // A v1 row's checksum covered every dialect at once, so it cannot be
-      // compared here. Its name and identity still have to match, and the next
-      // preparation rewrites it to this dialect's checksum.
-      if (!isLegacyRow(ledgerRow) && ledgerRow.checksum !== body.checksum) return false;
+      // A v1 row's checksum cannot be compared against a v2 body. The registry
+      // is only complete once the operator has authorized re-keying it.
+      if (isLegacyRow(ledgerRow)) {
+        if (!registry.allowLegacyLedgerUpgrade) return false;
+      } else if (ledgerRow.checksum !== body.checksum) {
+        return false;
+      }
     }
   }
   return true;
@@ -434,7 +451,10 @@ const hasCompleteLedger = (registry: Registry, ledgerRows: ReadonlyArray<LedgerR
 const validateExistingLedger = (
   registry: Registry,
   ledgerRows: ReadonlyArray<LedgerRow>,
-): Effect.Effect<void, DatabaseAhead | LedgerConflict | ProviderMismatch> =>
+): Effect.Effect<
+  void,
+  DatabaseAhead | LedgerConflict | LegacyLedgerUpgradeUnauthorized | ProviderMismatch
+> =>
   Effect.gen(function* () {
     const expectedProvider = providerName(registry.provider.provider);
     for (const row of ledgerRows) {
@@ -471,8 +491,19 @@ const validateExistingLedger = (
         );
       }
       // A v1 row carries a checksum over every dialect body, which no v2
-      // manifest can reproduce. Its logical identity is what carries over.
-      if (!isLegacyRow(row) && row.checksum !== body.checksum) {
+      // manifest can reproduce, so only its logical identity carries over. That
+      // is a weaker guarantee than every other row gets, so it takes an
+      // explicit opt-in rather than happening silently.
+      if (isLegacyRow(row)) {
+        if (registry.allowLegacyLedgerUpgrade) continue;
+        return yield* Effect.fail(
+          new LegacyLedgerUpgradeUnauthorized({
+            capsuleId: row.capsule_id,
+            migrationId: row.migration_id,
+          }),
+        );
+      }
+      if (row.checksum !== body.checksum) {
         return yield* Effect.fail(
           new LedgerConflict({
             capsuleId: row.capsule_id,
@@ -766,6 +797,7 @@ const upgradeLegacyLedgerRows = (
   ledgerRows: ReadonlyArray<LedgerRow>,
 ): Effect.Effect<void, RegistryRuntimeError> =>
   Effect.gen(function* () {
+    if (!registry.allowLegacyLedgerUpgrade) return;
     for (const row of ledgerRows) {
       if (!isLegacyRow(row)) continue;
       const body = manifestBodyOf(registry, row.capsule_id, row.migration_id);
@@ -879,6 +911,11 @@ const readReadiness = (
           return drift(
             registry,
             `migration ${error.migrationId} of capsule ${error.capsuleId} was applied with checksum ${error.actual}, but the code now describes ${error.expected}`,
+          );
+        case "LegacyLedgerUpgradeUnauthorized":
+          return drift(
+            registry,
+            `migration ${error.migrationId} of capsule ${error.capsuleId} was applied before per-dialect checksums; confirm its history is unchanged and set allowLegacyLedgerUpgrade`,
           );
       }
     }

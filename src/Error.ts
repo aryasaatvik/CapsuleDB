@@ -132,6 +132,18 @@ export class D1ArtifactMigrationEdited extends Schema.TaggedError<D1ArtifactMigr
   },
 ) {}
 
+/**
+ * A ledger written before per-dialect checksums needs an explicit upgrade.
+ *
+ * A v1 checksum covered every dialect body at once under a canonicalization
+ * this version cannot reproduce, so re-keying a row means trusting its logical
+ * identity instead of its content. That is an operator decision.
+ */
+export class LegacyLedgerUpgradeUnauthorized extends Schema.TaggedError<LegacyLedgerUpgradeUnauthorized>()(
+  "LegacyLedgerUpgradeUnauthorized",
+  { capsuleId: Schema.String, migrationId: Schema.Number },
+) {}
+
 /** An emitted SQL folder no longer matches the projection CapsuleDB produces. */
 export class EmitDrift extends Schema.TaggedError<EmitDrift>()("EmitDrift", {
   path: Schema.String,
@@ -217,6 +229,7 @@ export type CapsuleError =
   | D1ArtifactMigrationReordered
   | D1ArtifactMigrationEdited
   | EmitDrift
+  | LegacyLedgerUpgradeUnauthorized
   | DestructiveMigrationUnauthorized
   | DatabaseAhead
   | PartialMigration

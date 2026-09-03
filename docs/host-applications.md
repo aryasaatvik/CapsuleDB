@@ -104,6 +104,9 @@ Registry.layer({ provider: Pg.profile, capsules: [capsule], mode: "assert" });
 | Boot cost                  | one ledger read plus any pending work | one ledger read                          |
 | Drift caught               | at boot                               | at `check` time in CI, and again at boot |
 
+Regenerating replaces CapsuleDB's own files and deletes the ones a rename made
+obsolete; files the host owns in the same folder are left alone.
+
 Run `check` in CI. It fails when the installed library has a migration the
 folder does not, when a file was edited, when a file belongs to another dialect,
 and when the folder holds a CapsuleDB file the projection no longer emits.

@@ -26,11 +26,21 @@ diverged, so an operator does not have to guess which engine is affected.
 
 Manifest v1 hashed every dialect body of a migration together, which is the
 behavior per-dialect checksums replace, and a v2 runtime cannot reproduce a v1
-checksum. The first v2 preparation therefore adds a `dialect` column to the
-ledger and rewrites each pre-existing row to the checksum of the body this host
-applies. The upgrade is automatic, runs once per row, and still fails closed if
-a row's capsule, migration ID, or name no longer matches the registered history.
-It logs one entry per rewritten row at info level.
+checksum. Re-keying such a row therefore trusts its logical identity — capsule,
+migration ID, and name — rather than its content, which is a weaker guarantee
+than every other row gets. It is an operator decision, not a silent one:
+
+```ts
+Registry.layer({ provider: Pg.profile, capsules, allowLegacyLedgerUpgrade: true });
+```
+
+Until you set it, a v1 row reports `Drift` and preparation fails with
+`LegacyLedgerUpgradeUnauthorized`, leaving the original checksum in place.
+Confirm the applied history is the one your code still describes, then opt in
+once: the first preparation adds the `dialect` column, rewrites each pre-existing
+row to the checksum of the body this host applies, and logs what it rewrote. A
+row that already has a dialect is never touched again, and a row whose name no
+longer matches still fails closed.
 
 ## Normal change flow
 

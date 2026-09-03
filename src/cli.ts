@@ -426,6 +426,12 @@ const projectFiles = (
 const isEmittedSqlPath = (path: string): boolean =>
   path.endsWith(".sql") && basename(path) === path;
 
+/**
+ * Every emitted file opens with this marker, so regeneration can delete the
+ * files it no longer produces without touching the host's own SQL.
+ */
+const isCapsuleDbFile = (contents: string): boolean => contents.startsWith("-- capsuledb:");
+
 const readEmittedFiles = (
   output: string,
 ): Effect.Effect<ReadonlyArray<EmitFile>, InvalidDefinition> =>
@@ -470,15 +476,35 @@ const emitCommand = Command.make(
       json,
       operation: Effect.gen(function* () {
         const files = yield* projectFiles(modulePath, exportName, dialect, provider, prefix);
-        // CapsuleDB-owned files are overwritten in place; anything else in the
-        // folder belongs to the host's pipeline and is left alone.
+        const expected = new Set(files.map((file) => file.path));
+
+        // A rename changes a generated path, so the old file has to go or the
+        // folder would fail its own `check`. Only CapsuleDB's own files are
+        // removed; anything else belongs to the host's pipeline.
+        const removed: Array<string> = [];
+        for (const existing of yield* readEmittedFiles(out)) {
+          if (expected.has(existing.path) || !isCapsuleDbFile(existing.contents)) continue;
+          yield* Effect.tryPromise({
+            try: () => unlink(join(resolve(out), existing.path)),
+            catch: (cause) => operationError(`emit ${existing.path}`, cause),
+          });
+          removed.push(existing.path);
+        }
+
         for (const file of files) {
           yield* writeText(join(resolve(out), file.path), file.contents, `emit ${file.path}`);
         }
-        return files;
+        return { files, removed };
       }),
-      success: (files) => ({ out: resolve(out), dialect, files: files.map((file) => file.path) }),
-      summary: (files) => `Wrote ${files.length} ${dialect} SQL file(s) to ${resolve(out)}`,
+      success: ({ files, removed }) => ({
+        out: resolve(out),
+        dialect,
+        files: files.map((file) => file.path),
+        removed,
+      }),
+      summary: ({ files, removed }) =>
+        `Wrote ${files.length} ${dialect} SQL file(s) to ${resolve(out)}` +
+        (removed.length === 0 ? "" : `, removed ${removed.length} stale file(s)`),
     }),
 ).pipe(
   Command.withDescription(

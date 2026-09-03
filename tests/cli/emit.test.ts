@@ -142,6 +142,28 @@ describe("capsuledb emit", () => {
     assert.strictEqual(Exit.isFailure((await checkOf(out, "postgres")).exit), true);
   });
 
+  it("removes its own stale files on regeneration and keeps the host's", async () => {
+    const out = await mkdtemp(join(tmpdir(), "capsuledb-emit-"));
+    await emitTo(out, "postgres");
+
+    // A rename leaves an obsolete generated file behind; the host's own SQL in
+    // the same folder must survive.
+    const stale = join(out, "0001_capsule_reference_2e_tokens_old_name.sql");
+    await writeFile(stale, "-- capsuledb: renamed away\nSELECT 1;\n");
+    await writeFile(join(out, "9000_host_owned.sql"), "SELECT 'host';\n");
+
+    const regenerated = await emitTo(out, "postgres");
+    assert.strictEqual(Exit.isSuccess(regenerated.exit), true);
+    assert.deepStrictEqual(
+      (JSON.parse(regenerated.logs[0] ?? "{}") as { removed?: ReadonlyArray<string> }).removed,
+      ["0001_capsule_reference_2e_tokens_old_name.sql"],
+    );
+
+    const entries = await readdir(out);
+    assert.strictEqual(entries.includes("0001_capsule_reference_2e_tokens_old_name.sql"), false);
+    assert.strictEqual(entries.includes("9000_host_owned.sql"), true);
+  });
+
   it.effect("boots in assert mode after the emitted SQL is applied on SQLite", () =>
     Effect.gen(function* () {
       const out = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "capsuledb-emit-")));

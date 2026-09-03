@@ -128,7 +128,36 @@ describe("per-dialect migration checksums", () => {
     ),
   );
 
-  it.effect("upgrades a manifest v1 ledger row without manual intervention", () =>
+  it.effect("refuses to re-key a manifest v1 ledger row without authorization", () =>
+    withSqlite(
+      Effect.gen(function* () {
+        const capsule = capsuleWith({ postgres: [CREATE_TOKENS], sqlite: [CREATE_TOKENS] });
+        const options = { provider: BunSqliteProfile, capsules: [capsule] };
+        yield* Registry.prepare(options);
+
+        const sql = yield* Effect.service(SqlClient.SqlClient);
+        yield* sql.unsafe(`UPDATE "capsuledb_registry_ledger"
+          SET checksum = '${"a".repeat(64)}', dialect = NULL
+          WHERE capsule_id = 'checksum.tokens'`);
+
+        const failure = yield* Registry.prepare(options).pipe(Effect.flip);
+        assert.strictEqual(failure._tag, "LegacyLedgerUpgradeUnauthorized");
+
+        const readiness = yield* Registry.status(options);
+        assert.strictEqual(readiness._tag, "Drift");
+        if (readiness._tag === "Drift") {
+          assert.strictEqual(readiness.reason.includes("allowLegacyLedgerUpgrade"), true);
+        }
+
+        // The row is untouched, so the evidence of what was applied survives.
+        const rows = yield* sql<{ readonly checksum: string }>`SELECT checksum
+          FROM "capsuledb_registry_ledger" WHERE capsule_id = 'checksum.tokens'`;
+        assert.strictEqual(rows[0]?.checksum, "a".repeat(64));
+      }),
+    ),
+  );
+
+  it.effect("upgrades a manifest v1 ledger row when the operator opts in", () =>
     withSqlite(
       Effect.gen(function* () {
         const capsule = capsuleWith({ postgres: [CREATE_TOKENS], sqlite: [CREATE_TOKENS] });
@@ -142,7 +171,8 @@ describe("per-dialect migration checksums", () => {
           SET checksum = '${"a".repeat(64)}', dialect = NULL
           WHERE capsule_id = 'checksum.tokens'`);
 
-        yield* Registry.prepare(options);
+        const upgrading = { ...options, allowLegacyLedgerUpgrade: true };
+        yield* Registry.prepare(upgrading);
 
         const rows = yield* sql<{
           readonly checksum: string;
@@ -151,6 +181,8 @@ describe("per-dialect migration checksums", () => {
           WHERE capsule_id = 'checksum.tokens'`;
         assert.strictEqual(rows[0]?.dialect, "sqlite");
         assert.strictEqual(rows[0]?.checksum, yield* checksumOf(capsule, "sqlite"));
+
+        // Once re-keyed the row is an ordinary v2 row: no opt-in needed again.
         assert.strictEqual((yield* Registry.status(options))._tag, "Ready");
       }),
     ),
@@ -162,6 +194,7 @@ describe("per-dialect migration checksums", () => {
         const options = {
           provider: BunSqliteProfile,
           capsules: [capsuleWith({ postgres: [CREATE_TOKENS], sqlite: [CREATE_TOKENS] })],
+          allowLegacyLedgerUpgrade: true,
         };
         yield* Registry.prepare(options);
 
