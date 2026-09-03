@@ -89,6 +89,43 @@ describe("declarative schema rendering", () => {
     assert.deepStrictEqual(Dialect.render(Migration.dropTable("t"), "sqlite"), [`DROP TABLE "t"`]);
   });
 
+  it("rejects a table whose indexes would render the same name twice", () => {
+    assert.throws(() =>
+      Schema.table("dupes", {
+        columns: { a: Schema.text(), b: Schema.text() },
+        primaryKey: ["a"],
+        indexes: [{ columns: ["b"] }, { columns: ["b"] }],
+      }),
+    );
+    assert.throws(() =>
+      Schema.table("dupes", {
+        columns: { a: Schema.text(), b: Schema.text() },
+        primaryKey: ["a"],
+        indexes: [{ columns: ["b"] }, { name: "dupes_b_idx", columns: ["a"] }],
+      }),
+    );
+    assert.throws(() =>
+      Schema.table("dupes", {
+        columns: { a: Schema.text() },
+        primaryKey: ["a"],
+        checks: [
+          { name: "same", sql: "a IS NOT NULL" },
+          { name: "same", sql: "a <> ''" },
+        ],
+      }),
+    );
+  });
+
+  it("validates identifiers in the incremental steps too", () => {
+    const note = Schema.text({ nullable: true });
+    assert.throws(() => Migration.addColumn('t" ; DROP TABLE x; --', "note", note));
+    assert.throws(() => Migration.addColumn("t", 'note" ; DROP TABLE x; --', note));
+    assert.throws(() => Migration.dropTable('t" ; DROP TABLE x; --'));
+    assert.throws(() => Migration.createIndex("t", { columns: ['note"; --'] }));
+    assert.throws(() => Migration.createIndex("t", { name: 'i"; --', columns: ["note"] }));
+    assert.throws(() => Migration.createIndex("t", { columns: [] }));
+  });
+
   it("rejects an identifier that could escape the quoting it is rendered into", () => {
     assert.throws(() =>
       Schema.table('evil" (x TEXT); DROP TABLE "victim', {

@@ -102,13 +102,31 @@ const IDENTIFIER = /^[a-z_][a-z0-9_]*$/i;
 const invalid = (subject: string, reason: string): CapsuleDefinitionError =>
   new CapsuleDefinitionError({ subject, reason });
 
-const checkIdentifier = (value: string, subject: string): void => {
+/**
+ * Reject anything CapsuleDB would quote into DDL that is not a plain SQL
+ * identifier. Every path that reaches a renderer goes through here, including
+ * the incremental migration steps that do not carry a whole table declaration.
+ */
+export const checkIdentifier = (value: string, subject: string): void => {
   if (!IDENTIFIER.test(value) || value.length > 63) {
     throw invalid(
       subject,
       `${JSON.stringify(value)} is not a valid SQL identifier: use up to 63 letters, digits, and underscores starting with a letter or underscore`,
     );
   }
+};
+
+/** The deterministic name an index is rendered under. */
+export const indexName = (table: string, index: Index): string =>
+  index.name ?? `${table}_${index.columns.join("_")}_idx`;
+
+/** Validate one index in isolation, including the name it will render under. */
+export const checkIndex = (table: string, index: Index, subject: string): void => {
+  if (index.columns.length === 0) throw invalid(subject, "an index needs at least one column");
+  for (const column of index.columns) {
+    checkIdentifier(column, `${subject} column ${JSON.stringify(column)}`);
+  }
+  checkIdentifier(indexName(table, index), `${subject} name`);
 };
 
 const column =
@@ -165,14 +183,29 @@ export const table = <const Name extends string, const Columns extends Record<st
   for (const unique of definition.uniques ?? []) {
     requireDeclared([...unique], `table ${name} unique constraint`);
   }
+  const indexNames = new Set<string>();
   for (const index of definition.indexes ?? []) {
     requireDeclared([...index.columns], `table ${name} index`);
-    if (index.name !== undefined) {
-      checkIdentifier(index.name, `table ${name} index ${JSON.stringify(index.name)}`);
+    checkIndex(name, index, `table ${name} index`);
+    // Two indexes that render the same name would make the second CREATE INDEX
+    // fail halfway through a migration, so reject the declaration instead.
+    const rendered = indexName(name, index);
+    if (indexNames.has(rendered)) {
+      throw invalid(`table ${name} index ${JSON.stringify(rendered)}`, "the name is already used");
     }
+    indexNames.add(rendered);
   }
+
+  const checkNames = new Set<string>();
   for (const check of definition.checks ?? []) {
     checkIdentifier(check.name, `table ${name} check ${JSON.stringify(check.name)}`);
+    if (checkNames.has(check.name)) {
+      throw invalid(
+        `table ${name} check ${JSON.stringify(check.name)}`,
+        "the name is already used",
+      );
+    }
+    checkNames.add(check.name);
   }
 
   return Object.freeze({ ...definition, name });

@@ -1,6 +1,6 @@
 import { CapsuleDefinitionError } from "./Error.ts";
 import type { Step } from "./Migration.ts";
-import type { Column, ColumnDefault, Index, Table } from "./Schema.ts";
+import { indexName, type Column, type ColumnDefault, type Index, type Table } from "./Schema.ts";
 
 /**
  * The SQL syntax families CapsuleDB renders.
@@ -52,9 +52,6 @@ const columnClause = (name: string, column: Column, dialect: Dialect): string =>
   if (column.default !== undefined) parts.push(`DEFAULT ${literal(column.default, dialect)}`);
   return parts.join(" ");
 };
-
-const indexName = (table: string, index: Index): string =>
-  index.name ?? `${table}_${index.columns.join("_")}_idx`;
 
 /** Render one `CREATE INDEX` statement for a declared index. */
 export const renderIndex = (table: string, index: Index, dialect: Dialect): string => {

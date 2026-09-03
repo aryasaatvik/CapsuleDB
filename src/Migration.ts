@@ -4,7 +4,7 @@ import type * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { type Dialect, dialects, render, supports } from "./Dialect.ts";
 import { CapsuleDefinitionError } from "./Error.ts";
-import type { Column, Index, Table } from "./Schema.ts";
+import { checkIdentifier, checkIndex, type Column, type Index, type Table } from "./Schema.ts";
 
 /** A positive logical migration number shared by every dialect. */
 export const MigrationId = EffectSchema.Int.pipe(
@@ -104,23 +104,31 @@ export type Operation<Failure = unknown> =
 /** Declare a table in one step; renders `CREATE TABLE` plus its indexes. */
 export const createTable = (table: Table): Step<never> => ({ _tag: "CreateTable", table });
 
-/** Add one column to an existing table. */
-export const addColumn = (table: string, column: string, definition: Column): Step<never> => ({
-  _tag: "AddColumn",
-  table,
-  column,
-  definition,
-});
+/**
+ * Add one column to an existing table.
+ *
+ * The incremental steps name a table CapsuleDB has no declaration for, so they
+ * validate their identifiers here. Every name a renderer quotes is checked
+ * before it can reach generated SQL, exactly as in `Schema.table`.
+ */
+export const addColumn = (table: string, column: string, definition: Column): Step<never> => {
+  checkIdentifier(table, `addColumn table ${JSON.stringify(table)}`);
+  checkIdentifier(column, `addColumn column ${JSON.stringify(column)}`);
+  return { _tag: "AddColumn", table, column, definition };
+};
 
 /** Create one secondary index over an existing table. */
-export const createIndex = (table: string, index: Index): Step<never> => ({
-  _tag: "CreateIndex",
-  table,
-  index,
-});
+export const createIndex = (table: string, index: Index): Step<never> => {
+  checkIdentifier(table, `createIndex table ${JSON.stringify(table)}`);
+  checkIndex(table, index, `createIndex on ${table}`);
+  return { _tag: "CreateIndex", table, index };
+};
 
 /** Drop a table. Only valid inside a migration marked `destructive`. */
-export const dropTable = (table: string): Step<never> => ({ _tag: "DropTable", table });
+export const dropTable = (table: string): Step<never> => {
+  checkIdentifier(table, `dropTable table ${JSON.stringify(table)}`);
+  return { _tag: "DropTable", table };
+};
 
 /** Raw statements for the dialects that need engine-specific SQL. */
 export const sql = (bodies: Partial<Record<Dialect, ReadonlyArray<string>>>): Step<never> => ({
