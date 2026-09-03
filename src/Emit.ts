@@ -10,6 +10,7 @@ import {
   type ManifestMigration,
 } from "./Manifest.ts";
 import { providerDialect, providerName, type Provider } from "./Provider.ts";
+import { sha256 } from "./internal/checksum.ts";
 import { ledgerTables } from "./internal/transactional-migrator.ts";
 
 /**
@@ -22,15 +23,26 @@ import { ledgerTables } from "./internal/transactional-migrator.ts";
  */
 export const INDEX_PATH = "capsuledb.emit.json";
 
-/** The first bytes of every emitted `.sql` file. */
-export const GENERATED_MARKER = "-- capsuledb:";
+/**
+ * One file a previous emit wrote, and the checksum of exactly what it wrote.
+ *
+ * The checksum is what makes ownership provable rather than guessed: a host
+ * file that happens to sit at a claimed path — even one that opens with a
+ * CapsuleDB-looking comment — cannot match bytes CapsuleDB generated.
+ */
+export const EmitIndexFile = Schema.Struct({
+  path: Schema.String,
+  checksum: Schema.String,
+});
+
+export type EmitIndexFile = typeof EmitIndexFile.Type;
 
 export const EmitIndex = Schema.Struct({
   version: Schema.Literal(1),
   dialect: Schema.Union([Schema.Literal("postgres"), Schema.Literal("sqlite")]),
   provider: Schema.String,
   prefix: Schema.String,
-  files: Schema.Array(Schema.String),
+  files: Schema.Array(EmitIndexFile),
 });
 
 export type EmitIndex = typeof EmitIndex.Type;
@@ -98,9 +110,6 @@ const statementsOf = (body: ManifestBody): Effect.Effect<ReadonlyArray<string>, 
 
 const header = (lines: ReadonlyArray<string>): string =>
   lines.map((line) => `-- ${line}`).join("\n");
-
-/** Whether a file still looks like the emitted file an index claims it is. */
-export const isGenerated = (contents: string): boolean => contents.startsWith(GENERATED_MARKER);
 
 const block = (statements: ReadonlyArray<string>): string =>
   statements.map((statement) => `${statement};`).join("\n\n");
@@ -214,12 +223,16 @@ export const emit = (
       ])}\n${block([metadataUpsert(tables.metadata, manifest.fingerprint, stamp)])}\n`,
     });
 
+    const indexed: Array<EmitIndexFile> = [];
+    for (const file of files) {
+      indexed.push({ path: file.path, checksum: yield* sha256(file.contents) });
+    }
     const emitIndex: EmitIndex = {
       version: 1,
       dialect: options.dialect,
       provider: stamp,
       prefix: options.prefix ?? "capsuledb",
-      files: files.map((file) => file.path),
+      files: indexed,
     };
     files.push({
       path: INDEX_PATH,
@@ -272,10 +285,10 @@ export const check = (
     }
     const projected = new Set(expected.map((file) => file.path));
     for (const owned of indexOf(actual)?.files ?? []) {
-      if (projected.has(owned)) continue;
+      if (projected.has(owned.path)) continue;
       return yield* Effect.fail(
         new EmitDrift({
-          path: owned,
+          path: owned.path,
           reason: "the folder still holds a file the current projection no longer emits",
         }),
       );

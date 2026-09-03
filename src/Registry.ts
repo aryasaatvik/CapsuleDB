@@ -1114,10 +1114,13 @@ const prepareRegistry = (
         }),
       );
     } else {
-      // D1 has no interactive transaction; each write is its own atomic unit.
-      yield* rewriteLegacy;
+      // D1 has no interactive transaction, so the re-key cannot share one. It
+      // goes last instead: `applyPending` already skips a legacy row it can
+      // still identify, so a failure before this point leaves every original
+      // checksum in place and the next run retries.
       yield* applyPending(sql, registry);
       yield* writeMetadata(sql, registry, expectedProvider);
+      yield* rewriteLegacy;
     }
 
     yield* Effect.logDebug("CapsuleDB registry ready").pipe(

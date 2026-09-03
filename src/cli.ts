@@ -14,14 +14,8 @@ import {
   validateD1Artifact,
   type D1Artifact,
 } from "./D1Artifact.ts";
-import {
-  check as checkEmitted,
-  emit,
-  indexOf,
-  INDEX_PATH,
-  isGenerated,
-  type EmitFile,
-} from "./Emit.ts";
+import { check as checkEmitted, emit, indexOf, INDEX_PATH, type EmitFile } from "./Emit.ts";
+import { sha256 } from "./internal/checksum.ts";
 import { InvalidDefinition } from "./Error.ts";
 import type { Dialect } from "./Dialect.ts";
 import type { Provider } from "./Provider.ts";
@@ -480,30 +474,30 @@ const emitCommand = Command.make(
         const expected = new Set(files.map((file) => file.path));
 
         // A rename changes a generated path, so the old file has to go or the
-        // folder would fail its own `check`. Deleting one takes two independent
-        // signals: the previous index claimed it, so a host file that merely
-        // looks generated is never touched, and it still carries the generated
-        // header, so a claimed path the host has since taken over is not either.
+        // folder would fail its own `check`. A file is only deleted when the
+        // previous index claims it *and* its bytes still hash to what that emit
+        // wrote. Nothing a host put there can match, so nothing a host owns is
+        // ever removed, and a hand-edited generated file is reported instead.
         const existingFiles = yield* readEmittedFiles(out);
         const removed: Array<string> = [];
         for (const owned of indexOf(existingFiles)?.files ?? []) {
-          if (expected.has(owned) || !isEmittedPath(owned)) continue;
-          const existing = existingFiles.find((file) => file.path === owned);
+          if (expected.has(owned.path) || !isEmittedPath(owned.path)) continue;
+          const existing = existingFiles.find((file) => file.path === owned.path);
           if (existing === undefined) continue;
-          if (!isGenerated(existing.contents)) {
+          if ((yield* sha256(existing.contents)) !== owned.checksum) {
             return yield* Effect.fail(
               new InvalidDefinition({
-                subject: `emit ${owned}`,
+                subject: `emit ${owned.path}`,
                 reason:
-                  "the index claims this file but its contents are no longer CapsuleDB's; remove or rename it yourself",
+                  "the index claims this file but its contents are not the ones CapsuleDB wrote; remove or rename it yourself",
               }),
             );
           }
           yield* Effect.tryPromise({
-            try: () => unlink(join(resolve(out), owned)),
-            catch: (cause) => operationError(`emit ${owned}`, cause),
+            try: () => unlink(join(resolve(out), owned.path)),
+            catch: (cause) => operationError(`emit ${owned.path}`, cause),
           });
-          removed.push(owned);
+          removed.push(owned.path);
         }
 
         for (const file of files) {

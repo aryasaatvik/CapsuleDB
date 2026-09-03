@@ -13,9 +13,12 @@ import * as Migration from "../../src/Migration.ts";
 import { BunSqliteProfile, PostgresProfile } from "../../src/Provider.ts";
 import * as Registry from "../../src/Registry.ts";
 import * as Schema from "../../src/Schema.ts";
+import { sha256 } from "../../src/internal/checksum.ts";
 import { withPostgresSql } from "../providers/postgres.ts";
 
 const modulePath = resolve("examples/reference-token/Capsule.ts");
+
+const sha256Of = (contents: string): Promise<string> => Effect.runPromise(sha256(contents));
 
 const runCli = async (args: ReadonlyArray<string>) => {
   const logs: Array<string> = [];
@@ -145,9 +148,12 @@ describe("capsuledb emit", () => {
 
     // A file a previous index claimed but the projection no longer emits is.
     const index = JSON.parse(await readFile(join(out, "capsuledb.emit.json"), "utf8")) as {
-      files: Array<string>;
+      files: Array<{ path: string; checksum: string }>;
     };
-    index.files.push("0009_capsule_reference_2e_tokens_gone.sql");
+    index.files.push({
+      path: "0009_capsule_reference_2e_tokens_gone.sql",
+      checksum: "0".repeat(64),
+    });
     await writeFile(join(out, "capsuledb.emit.json"), `${JSON.stringify(index, null, 2)}\n`);
     assert.strictEqual(Exit.isFailure((await checkOf(out, "postgres")).exit), true);
   });
@@ -160,12 +166,13 @@ describe("capsuledb emit", () => {
     // written by the previous run. A host file that merely looks generated must
     // survive, because ownership comes from the index and not from contents.
     const stale = "0001_capsule_reference_2e_tokens_old_name.sql";
-    await writeFile(join(out, stale), "-- capsuledb: renamed away\nSELECT 1;\n");
+    const staleContents = "-- capsuledb: renamed away\nSELECT 1;\n";
+    await writeFile(join(out, stale), staleContents);
     await writeFile(join(out, "9000_host_owned.sql"), "-- capsuledb: not really\nSELECT 'host';\n");
     const previous = JSON.parse(await readFile(join(out, "capsuledb.emit.json"), "utf8")) as {
-      files: Array<string>;
+      files: Array<{ path: string; checksum: string }>;
     };
-    previous.files.push(stale);
+    previous.files.push({ path: stale, checksum: await sha256Of(staleContents) });
     await writeFile(join(out, "capsuledb.emit.json"), `${JSON.stringify(previous, null, 2)}\n`);
 
     const regenerated = await emitTo(out, "postgres");
@@ -184,13 +191,15 @@ describe("capsuledb emit", () => {
     const out = await mkdtemp(join(tmpdir(), "capsuledb-emit-"));
     await emitTo(out, "postgres");
 
-    // The index claims this path, but its contents are now the host's.
+    // The index claims this path and the file even opens with the CapsuleDB
+    // comment marker, but the bytes are the host's, so they cannot hash to what
+    // the recorded emit wrote.
     const taken = "0001_capsule_reference_2e_tokens_old_name.sql";
-    await writeFile(join(out, taken), "SELECT 'now mine';\n");
+    await writeFile(join(out, taken), "-- capsuledb: looks generated\nSELECT 'now mine';\n");
     const index = JSON.parse(await readFile(join(out, "capsuledb.emit.json"), "utf8")) as {
-      files: Array<string>;
+      files: Array<{ path: string; checksum: string }>;
     };
-    index.files.push(taken);
+    index.files.push({ path: taken, checksum: "0".repeat(64) });
     await writeFile(join(out, "capsuledb.emit.json"), `${JSON.stringify(index, null, 2)}\n`);
 
     const regenerated = await emitTo(out, "postgres");
@@ -199,7 +208,10 @@ describe("capsuledb emit", () => {
       (JSON.parse(regenerated.logs[0] ?? "{}") as { error?: { _tag?: string } }).error?._tag,
       "InvalidDefinition",
     );
-    assert.strictEqual(await readFile(join(out, taken), "utf8"), "SELECT 'now mine';\n");
+    assert.strictEqual(
+      await readFile(join(out, taken), "utf8"),
+      "-- capsuledb: looks generated\nSELECT 'now mine';\n",
+    );
   });
 
   it.effect("boots in assert mode after the emitted SQL is applied on SQLite", () =>
