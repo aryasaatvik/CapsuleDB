@@ -9,7 +9,7 @@ const requiredDocuments = [
   "docs/host-applications.md",
   "docs/providers.md",
   "docs/migrations-and-recovery.md",
-  "docs/adr/0001-effect-native-capsule-runtime.md",
+  "docs/design.md",
 ] as const;
 
 const repositoryRoot = resolve(import.meta.dirname, "..");

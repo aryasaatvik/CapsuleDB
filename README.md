@@ -122,7 +122,7 @@ silently discover capsules. A host explicitly composes the capsules it trusts.
 - [Host applications](docs/host-applications.md) — client ownership, preparation, readiness, and authorization.
 - [Providers](docs/providers.md) — capability matrix and D1's bounded atomic-batch contract.
 - [Migrations and recovery](docs/migrations-and-recovery.md) — append-only changes and failure recovery.
-- [Architecture ADR](docs/adr/0001-effect-native-capsule-runtime.md) — durable design rationale.
+- [Design principles](docs/design.md) — the contract and the boundaries it keeps.
 
 ## License
 
