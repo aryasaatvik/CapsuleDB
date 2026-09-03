@@ -12,6 +12,26 @@ import {
 import { providerDialect, providerName, type Provider } from "./Provider.ts";
 import { ledgerTables } from "./internal/transactional-migrator.ts";
 
+/**
+ * The index every emitted folder carries.
+ *
+ * An emit folder is shared with the host's own migration pipeline, so CapsuleDB
+ * cannot guess which files are its own. The index is the record of ownership:
+ * regeneration deletes only what a previous index claimed, and `check` ignores
+ * everything neither the index nor the current projection names.
+ */
+export const INDEX_PATH = "capsuledb.emit.json";
+
+export const EmitIndex = Schema.Struct({
+  version: Schema.Literal(1),
+  dialect: Schema.Union([Schema.Literal("postgres"), Schema.Literal("sqlite")]),
+  provider: Schema.String,
+  prefix: Schema.String,
+  files: Schema.Array(Schema.String),
+});
+
+export type EmitIndex = typeof EmitIndex.Type;
+
 /** One file `capsuledb emit` writes and `capsuledb check` compares. */
 export const EmitFile = Schema.Struct({
   path: Schema.String,
@@ -188,13 +208,40 @@ export const emit = (
       ])}\n${block([metadataUpsert(tables.metadata, manifest.fingerprint, stamp)])}\n`,
     });
 
+    const emitIndex: EmitIndex = {
+      version: 1,
+      dialect: options.dialect,
+      provider: stamp,
+      prefix: options.prefix ?? "capsuledb",
+      files: files.map((file) => file.path),
+    };
+    files.push({
+      path: INDEX_PATH,
+      contents: `${JSON.stringify(emitIndex, null, 2)}\n`,
+    });
+
     return Object.freeze(files);
   });
 
+/** Read the ownership index out of a folder's files, if it has one. */
+export const indexOf = (files: ReadonlyArray<EmitFile>): EmitIndex | undefined => {
+  const file = files.find((candidate) => candidate.path === INDEX_PATH);
+  if (file === undefined) return undefined;
+  try {
+    return Schema.decodeUnknownSync(EmitIndex)(JSON.parse(file.contents));
+  } catch {
+    return undefined;
+  }
+};
+
 /**
  * Compare an emitted folder against the projection the current library
- * produces. A missing file means the library has a migration the folder does
- * not; an extra or edited file means the folder no longer describes it.
+ * produces.
+ *
+ * Only CapsuleDB's own files are considered: every projected file must be
+ * present and identical, and every file a previous index claimed must still be
+ * one the projection emits. Anything the host put in the folder is not
+ * CapsuleDB's to police.
  */
 export const check = (
   expected: ReadonlyArray<EmitFile>,
@@ -217,14 +264,14 @@ export const check = (
         );
       }
     }
-    for (const file of actual) {
-      if (!expected.some((candidate) => candidate.path === file.path)) {
-        return yield* Effect.fail(
-          new EmitDrift({
-            path: file.path,
-            reason: "the current projection does not emit this file",
-          }),
-        );
-      }
+    const projected = new Set(expected.map((file) => file.path));
+    for (const owned of indexOf(actual)?.files ?? []) {
+      if (projected.has(owned)) continue;
+      return yield* Effect.fail(
+        new EmitDrift({
+          path: owned,
+          reason: "the folder still holds a file the current projection no longer emits",
+        }),
+      );
     }
   });

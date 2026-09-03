@@ -102,6 +102,7 @@ describe("capsuledb emit", () => {
       "0001_capsule_reference_2e_tokens_create_tokens.sql",
       "0002_capsule_reference_2e_tokens_add_token_audit.sql",
       "0003_capsuledb_readiness.sql",
+      "capsuledb.emit.json",
     ]);
 
     const sqlite = await mkdtemp(join(tmpdir(), "capsuledb-emit-"));
@@ -138,7 +139,16 @@ describe("capsuledb emit", () => {
     // An emitted folder for the other dialect is not this one.
     assert.strictEqual(Exit.isFailure((await checkOf(out, "sqlite")).exit), true);
 
+    // A file the host owns in the same folder is not CapsuleDB's to police.
     await writeFile(join(out, "9999_host_owned.sql"), "SELECT 1;\n");
+    assert.strictEqual(Exit.isSuccess((await checkOf(out, "postgres")).exit), true);
+
+    // A file a previous index claimed but the projection no longer emits is.
+    const index = JSON.parse(await readFile(join(out, "capsuledb.emit.json"), "utf8")) as {
+      files: Array<string>;
+    };
+    index.files.push("0009_capsule_reference_2e_tokens_gone.sql");
+    await writeFile(join(out, "capsuledb.emit.json"), `${JSON.stringify(index, null, 2)}\n`);
     assert.strictEqual(Exit.isFailure((await checkOf(out, "postgres")).exit), true);
   });
 
@@ -146,11 +156,17 @@ describe("capsuledb emit", () => {
     const out = await mkdtemp(join(tmpdir(), "capsuledb-emit-"));
     await emitTo(out, "postgres");
 
-    // A rename leaves an obsolete generated file behind; the host's own SQL in
-    // the same folder must survive.
-    const stale = join(out, "0001_capsule_reference_2e_tokens_old_name.sql");
-    await writeFile(stale, "-- capsuledb: renamed away\nSELECT 1;\n");
-    await writeFile(join(out, "9000_host_owned.sql"), "SELECT 'host';\n");
+    // A rename leaves an obsolete generated file behind, recorded in the index
+    // written by the previous run. A host file that merely looks generated must
+    // survive, because ownership comes from the index and not from contents.
+    const stale = "0001_capsule_reference_2e_tokens_old_name.sql";
+    await writeFile(join(out, stale), "-- capsuledb: renamed away\nSELECT 1;\n");
+    await writeFile(join(out, "9000_host_owned.sql"), "-- capsuledb: not really\nSELECT 'host';\n");
+    const previous = JSON.parse(await readFile(join(out, "capsuledb.emit.json"), "utf8")) as {
+      files: Array<string>;
+    };
+    previous.files.push(stale);
+    await writeFile(join(out, "capsuledb.emit.json"), `${JSON.stringify(previous, null, 2)}\n`);
 
     const regenerated = await emitTo(out, "postgres");
     assert.strictEqual(Exit.isSuccess(regenerated.exit), true);

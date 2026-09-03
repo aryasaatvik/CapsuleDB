@@ -798,14 +798,35 @@ const upgradeLegacyLedgerRows = (
 ): Effect.Effect<void, RegistryRuntimeError> =>
   Effect.gen(function* () {
     if (!registry.allowLegacyLedgerUpgrade) return;
+    if (!ledgerRows.some(isLegacyRow)) return;
+    const rewrite = Effect.gen(function* () {
+      yield* rewriteLegacyRows(sql, registry, ledgerRows);
+    });
+    // The rewrite is all-or-nothing wherever the provider can make it so, and
+    // it runs only after the ledger and the provider stamp have validated.
+    yield* registry.provider.capabilities._tag === "Transactional"
+      ? sql.withTransaction(rewrite)
+      : rewrite;
+  });
+
+const rewriteLegacyRows = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+  ledgerRows: ReadonlyArray<LedgerRow>,
+): Effect.Effect<void, RegistryRuntimeError> =>
+  Effect.gen(function* () {
     for (const row of ledgerRows) {
       if (!isLegacyRow(row)) continue;
       const body = manifestBodyOf(registry, row.capsule_id, row.migration_id);
       if (body === undefined) continue;
 
+      // `dialect IS NULL` keeps a concurrent preparation that already re-keyed
+      // this row from being overwritten with a second, redundant rewrite.
       yield* sql`UPDATE ${sql(registry.ledger)}
         SET checksum = ${body.checksum}, dialect = ${registry.provider.dialect}
-        WHERE capsule_id = ${row.capsule_id} AND migration_id = ${row.migration_id}`;
+        WHERE capsule_id = ${row.capsule_id}
+          AND migration_id = ${row.migration_id}
+          AND dialect IS NULL`;
       yield* Effect.logInfo("CapsuleDB ledger row upgraded to a per-dialect checksum").pipe(
         Effect.annotateLogs("capsule_id", row.capsule_id),
         Effect.annotateLogs("migration_id", String(row.migration_id)),
@@ -983,10 +1004,6 @@ const prepareRegistry = (
 
     const initialRows = yield* readLedgerRows(sql, registry);
     yield* validateExistingLedger(registry, initialRows);
-    yield* upgradeLegacyLedgerRows(sql, registry, initialRows);
-    const ledgerRows = initialRows.some(isLegacyRow)
-      ? yield* readLedgerRows(sql, registry)
-      : initialRows;
 
     const metadata = yield* readMetadata(sql, registry);
     const expectedProvider = providerName(registry.provider.provider);
@@ -1000,6 +1017,14 @@ const prepareRegistry = (
         new ProviderMismatch({ dialect: expectedProvider, mode: metadata.provider }),
       );
     }
+
+    // Only now, with the ledger and the provider stamp both validated, is it
+    // safe to rewrite anything: a provider mismatch must not leave a re-keyed
+    // row behind.
+    yield* upgradeLegacyLedgerRows(sql, registry, initialRows);
+    const ledgerRows = initialRows.some(isLegacyRow)
+      ? yield* readLedgerRows(sql, registry)
+      : initialRows;
 
     // D1 can recover metadata after an interrupted metadata write, but only
     // when every provider-stamped claim exactly matches the current history.

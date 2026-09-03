@@ -14,7 +14,7 @@ import {
   validateD1Artifact,
   type D1Artifact,
 } from "./D1Artifact.ts";
-import { check as checkEmitted, emit, type EmitFile } from "./Emit.ts";
+import { check as checkEmitted, emit, indexOf, INDEX_PATH, type EmitFile } from "./Emit.ts";
 import { InvalidDefinition } from "./Error.ts";
 import type { Dialect } from "./Dialect.ts";
 import type { Provider } from "./Provider.ts";
@@ -423,14 +423,8 @@ const projectFiles = (
     return yield* emit(manifest, yield* emitOptionsOf(dialect, provider, prefix));
   });
 
-const isEmittedSqlPath = (path: string): boolean =>
-  path.endsWith(".sql") && basename(path) === path;
-
-/**
- * Every emitted file opens with this marker, so regeneration can delete the
- * files it no longer produces without touching the host's own SQL.
- */
-const isCapsuleDbFile = (contents: string): boolean => contents.startsWith("-- capsuledb:");
+const isEmittedPath = (path: string): boolean =>
+  basename(path) === path && (path.endsWith(".sql") || path === INDEX_PATH);
 
 const readEmittedFiles = (
   output: string,
@@ -450,7 +444,7 @@ const readEmittedFiles = (
     });
     const files: Array<EmitFile> = [];
     for (const entry of entries) {
-      if (!isEmittedSqlPath(entry)) continue;
+      if (!isEmittedPath(entry)) continue;
       files.push({
         path: entry,
         contents: yield* readText(join(absolute, entry), `emit ${entry}`),
@@ -479,16 +473,17 @@ const emitCommand = Command.make(
         const expected = new Set(files.map((file) => file.path));
 
         // A rename changes a generated path, so the old file has to go or the
-        // folder would fail its own `check`. Only CapsuleDB's own files are
-        // removed; anything else belongs to the host's pipeline.
+        // folder would fail its own `check`. Ownership comes from the previous
+        // index, never from the file's contents: a folder shared with the
+        // host's pipeline must not lose SQL that only looks generated.
         const removed: Array<string> = [];
-        for (const existing of yield* readEmittedFiles(out)) {
-          if (expected.has(existing.path) || !isCapsuleDbFile(existing.contents)) continue;
+        for (const owned of indexOf(yield* readEmittedFiles(out))?.files ?? []) {
+          if (expected.has(owned) || !isEmittedPath(owned)) continue;
           yield* Effect.tryPromise({
-            try: () => unlink(join(resolve(out), existing.path)),
-            catch: (cause) => operationError(`emit ${existing.path}`, cause),
+            try: () => unlink(join(resolve(out), owned)),
+            catch: (cause) => operationError(`emit ${owned}`, cause),
           });
-          removed.push(existing.path);
+          removed.push(owned);
         }
 
         for (const file of files) {

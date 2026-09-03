@@ -87,6 +87,7 @@ bunx capsuledb check --module ./node_modules/acme/dist/capsule.js --export capsu
   0000_capsuledb_ledger.sql          ledger + readiness metadata DDL
   0001_capsule_acme_tokens_...sql    one migration, then its ledger row
   0002_capsuledb_readiness.sql       the readiness metadata row
+  capsuledb.emit.json                which files in this folder CapsuleDB owns
 ```
 
 Then boot with `mode: "assert"`. The Layer applies nothing and fails with
@@ -104,8 +105,10 @@ Registry.layer({ provider: Pg.profile, capsules: [capsule], mode: "assert" });
 | Boot cost                  | one ledger read plus any pending work | one ledger read                          |
 | Drift caught               | at boot                               | at `check` time in CI, and again at boot |
 
-Regenerating replaces CapsuleDB's own files and deletes the ones a rename made
-obsolete; files the host owns in the same folder are left alone.
+`capsuledb.emit.json` records which files CapsuleDB owns, so an emit folder can
+be shared with the host's own migrations. Regeneration replaces the files it
+owns and deletes the ones a rename made obsolete; `check` ignores everything the
+index does not claim. Commit the index with the SQL.
 
 Run `check` in CI. It fails when the installed library has a migration the
 folder does not, when a file was edited, when a file belongs to another dialect,
