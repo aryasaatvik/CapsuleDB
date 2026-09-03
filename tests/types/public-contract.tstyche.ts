@@ -87,6 +87,15 @@ test("one registry Layer carries every capsule's service", () => {
     capsules: [tokens, audit],
   });
 
+  // Assert mode has the same output type; only the work behind it changes.
+  expect(
+    CapsuleDB.Registry.layer({
+      provider: CapsuleDB.Pg.profile,
+      capsules: [tokens, audit],
+      mode: "assert",
+    }),
+  ).type.toBe<typeof layer>();
+
   expect(layer).type.toBeAssignableTo<
     Layer.Layer<TokenService | AuditService, unknown, SqlClient.SqlClient>
   >();
@@ -111,6 +120,8 @@ test("the root exports one namespace per module and no duplicates", () => {
   expect(CapsuleDB).type.toHaveProperty("Schema");
   expect(CapsuleDB).type.toHaveProperty("Dialect");
   expect<CapsuleDB.Dialect.Dialect>().type.toBe<"postgres" | "sqlite">();
+  expect(CapsuleDB).type.toHaveProperty("Emit");
+  expect(CapsuleDB).type.toHaveProperty("Testing");
   expect(d1Profile).type.toBeAssignableTo<typeof CapsuleDB.D1.profile>();
   expect(postgresProfile).type.toBeAssignableTo<typeof CapsuleDB.Pg.profile>();
   expect(libsqlProfile).type.toBeAssignableTo<typeof CapsuleDB.Libsql.profile>();

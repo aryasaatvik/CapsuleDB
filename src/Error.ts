@@ -132,6 +132,12 @@ export class D1ArtifactMigrationEdited extends Schema.TaggedError<D1ArtifactMigr
   },
 ) {}
 
+/** An emitted SQL folder no longer matches the projection CapsuleDB produces. */
+export class EmitDrift extends Schema.TaggedError<EmitDrift>()("EmitDrift", {
+  path: Schema.String,
+  reason: Schema.String,
+}) {}
+
 /** A migration requires an explicit destructive-operation authorization. */
 export class DestructiveMigrationUnauthorized extends Schema.TaggedError<DestructiveMigrationUnauthorized>()(
   "DestructiveMigrationUnauthorized",
@@ -210,6 +216,7 @@ export type CapsuleError =
   | D1ArtifactMigrationMissing
   | D1ArtifactMigrationReordered
   | D1ArtifactMigrationEdited
+  | EmitDrift
   | DestructiveMigrationUnauthorized
   | DatabaseAhead
   | PartialMigration

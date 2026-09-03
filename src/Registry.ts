@@ -42,6 +42,12 @@ type AnyCapsule = Capsule<never, unknown, unknown>;
 export interface Options<Caps extends ReadonlyArray<AnyCapsule> = ReadonlyArray<AnyCapsule>> {
   readonly provider: ProviderProfile;
   readonly capsules: Caps;
+  /**
+   * `prepare` (default) applies pending migrations while the Layer is built.
+   * `assert` applies nothing and fails unless the database is already Ready,
+   * which is what a host that applied `capsuledb emit` output wants.
+   */
+  readonly mode?: "prepare" | "assert";
   /** Permit migrations marked `destructive`; defaults to `false`. */
   readonly allowDestructive?: boolean;
   /**
@@ -1088,6 +1094,10 @@ export const assert = (
  * Preparation is built first, so a capsule service can never observe a database
  * whose tables are missing. The host still owns the `SqlClient` this layer
  * consumes, along with anything else the capsule layers require.
+ *
+ * With `mode: "assert"` the Layer applies nothing and fails unless the database
+ * already matches the registered history — the boot path for a host that
+ * applied `capsuledb emit` output through its own migration pipeline.
  */
 export const layer = <const Caps extends ReadonlyArray<AnyCapsule>>(
   options: Options<Caps>,
@@ -1096,7 +1106,9 @@ export const layer = <const Caps extends ReadonlyArray<AnyCapsule>>(
   Failures<Caps> | RegistryRuntimeError,
   Requirements<Caps> | SqlClient.SqlClient
 > => {
-  const prepared = Layer.effectDiscard(prepare(options));
+  const prepared = Layer.effectDiscard(
+    options.mode === "assert" ? assert(options) : prepare(options),
+  );
   const services = options.capsules.map(
     (capsule) => capsule.layer as Layer.Layer<never, unknown, unknown>,
   );

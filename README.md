@@ -58,14 +58,24 @@ does not open or close the host client: the layer still requires the host's
 [host guide](docs/host-applications.md), and [migration runbook](docs/migrations-and-recovery.md)
 for the complete contract.
 
-For static D1 bodies, the optional CLI can persist a manifest and project SQL
-files. These files are deployment aids only; runtime preparation remains the
-source of truth:
+A host that already owns a migration pipeline can take the SQL instead and
+replace boot-time preparation with a readiness assertion:
 
 ```sh
-bun run capsuledb -- manifest write --module ./capsule.ts --export capsule --output ./capsuledb.manifest.json
-bun run capsuledb -- d1 artifact --module ./capsule.ts --export capsule --output ./d1-artifacts
-bun run capsuledb -- d1 check --module ./capsule.ts --export capsule --artifact ./d1-artifacts --json
+capsuledb emit  --module ./capsule.ts --export capsule --dialect postgres --out ./drizzle
+capsuledb check --module ./capsule.ts --export capsule --dialect postgres --out ./drizzle
+```
+
+```ts
+Registry.layer({ provider: Pg.profile, capsules: [capsule], mode: "assert" });
+```
+
+The CLI also writes a deterministic manifest and, for D1, static SQL artifacts:
+
+```sh
+capsuledb manifest write --module ./capsule.ts --export capsule --output ./capsuledb.manifest.json
+capsuledb d1 artifact --module ./capsule.ts --export capsule --output ./d1-artifacts
+capsuledb d1 check --module ./capsule.ts --export capsule --artifact ./d1-artifacts --json
 ```
 
 ## Status

@@ -50,6 +50,10 @@
       "types": "./dist/Dialect.d.mts",
       "import": "./dist/Dialect.mjs"
     },
+    "./Emit": {
+      "types": "./dist/Emit.d.mts",
+      "import": "./dist/Emit.mjs"
+    },
     "./Error": {
       "types": "./dist/Error.d.mts",
       "import": "./dist/Error.mjs"

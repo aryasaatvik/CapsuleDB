@@ -8,6 +8,7 @@ export default defineConfig({
     D1: "src/D1.ts",
     D1Artifact: "src/D1Artifact.ts",
     Dialect: "src/Dialect.ts",
+    Emit: "src/Emit.ts",
     Error: "src/Error.ts",
     index: "src/index.ts",
     Migration: "src/Migration.ts",

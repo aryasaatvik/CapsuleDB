@@ -68,6 +68,52 @@ The runtime checks every pending destructive migration before applying an
 earlier additive migration in that run. CapsuleDB does not decide whether a
 deployment is approved; the host supplies that policy.
 
+## Emit SQL instead of migrating at boot
+
+A host that already owns a migration pipeline — Drizzle, Atlas, a deploy job
+running `psql` — can take CapsuleDB's SQL and apply it itself. `emit` writes the
+migrations, the ledger DDL, and the ledger rows into a folder; `check` verifies
+that folder still matches the library you have installed:
+
+```sh
+bunx capsuledb emit  --module ./node_modules/acme/dist/capsule.js --export capsule \
+  --dialect postgres --out ./drizzle
+bunx capsuledb check --module ./node_modules/acme/dist/capsule.js --export capsule \
+  --dialect postgres --out ./drizzle
+```
+
+```text
+./drizzle
+  0000_capsuledb_ledger.sql          ledger + readiness metadata DDL
+  0001_capsule_acme_tokens_...sql    one migration, then its ledger row
+  0002_capsuledb_readiness.sql       the readiness metadata row
+```
+
+Then boot with `mode: "assert"`. The Layer applies nothing and fails with
+`NotReady` unless the database already matches the registered history:
+
+```ts
+Registry.layer({ provider: Pg.profile, capsules: [capsule], mode: "assert" });
+```
+
+|                            | `prepare` (default)                   | `emit` + `mode: "assert"`                |
+| -------------------------- | ------------------------------------- | ---------------------------------------- |
+| Who applies DDL            | CapsuleDB, at boot                    | your pipeline, at deploy                 |
+| Reviewable SQL in the repo | no                                    | yes                                      |
+| Effect migration steps     | supported                             | rejected; they have no SQL form          |
+| Boot cost                  | one ledger read plus any pending work | one ledger read                          |
+| Drift caught               | at boot                               | at `check` time in CI, and again at boot |
+
+Run `check` in CI. It fails when the installed library has a migration the
+folder does not, when a file was edited, when a file belongs to another dialect,
+and when the folder holds a CapsuleDB file the projection no longer emits.
+
+Files are numbered by CapsuleDB's own migration order rather than by wall clock,
+so the projection is byte-for-byte reproducible and `check` can compare it
+directly. They sort exactly as a timestamped folder does. Pass `--provider` when
+the SQLite dialect is not Bun SQLite (`Libsql`, `D1`), and `--prefix` when the
+registry uses one, so the emitted ledger rows match what the runtime expects.
+
 ## Sharing a database between registries
 
 CapsuleDB owns two tables of its own. `prefix` renames them, so two independent
