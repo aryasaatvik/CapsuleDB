@@ -187,6 +187,42 @@ describe("capsuledb emit", () => {
     assert.strictEqual(entries.includes("9000_host_owned.sql"), true);
   });
 
+  it("refuses to overwrite a hand-edited generated file", async () => {
+    const out = await mkdtemp(join(tmpdir(), "capsuledb-emit-"));
+    await emitTo(out, "postgres");
+
+    // The path is still one the projection emits, so regeneration would
+    // otherwise replace it without looking.
+    const edited = join(out, "0001_capsule_reference_2e_tokens_create_tokens.sql");
+    const mine = "-- capsuledb: my deployment tweak\nSELECT 'mine';\n";
+    await writeFile(edited, mine);
+
+    const regenerated = await emitTo(out, "postgres");
+    assert.strictEqual(Exit.isFailure(regenerated.exit), true);
+    assert.strictEqual(
+      (JSON.parse(regenerated.logs[0] ?? "{}") as { error?: { _tag?: string } }).error?._tag,
+      "InvalidDefinition",
+    );
+    assert.strictEqual(await readFile(edited, "utf8"), mine);
+  });
+
+  it("regenerates unchanged and library-upgraded files in place", async () => {
+    const out = await mkdtemp(join(tmpdir(), "capsuledb-emit-"));
+    await emitTo(out, "postgres");
+    const before = await readFile(
+      join(out, "0001_capsule_reference_2e_tokens_create_tokens.sql"),
+      "utf8",
+    );
+
+    // A second run over an untouched folder is a no-op, not a refusal.
+    assert.strictEqual(Exit.isSuccess((await emitTo(out, "postgres")).exit), true);
+    assert.strictEqual(
+      await readFile(join(out, "0001_capsule_reference_2e_tokens_create_tokens.sql"), "utf8"),
+      before,
+    );
+    assert.strictEqual(Exit.isSuccess((await checkOf(out, "postgres")).exit), true);
+  });
+
   it("refuses to delete a claimed path the host has taken over", async () => {
     const out = await mkdtemp(join(tmpdir(), "capsuledb-emit-"));
     await emitTo(out, "postgres");

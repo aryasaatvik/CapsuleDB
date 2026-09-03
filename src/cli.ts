@@ -472,35 +472,56 @@ const emitCommand = Command.make(
       operation: Effect.gen(function* () {
         const files = yield* projectFiles(modulePath, exportName, dialect, provider, prefix);
         const expected = new Set(files.map((file) => file.path));
-
-        // A rename changes a generated path, so the old file has to go or the
-        // folder would fail its own `check`. A file is only deleted when the
-        // previous index claims it *and* its bytes still hash to what that emit
-        // wrote. Nothing a host put there can match, so nothing a host owns is
-        // ever removed, and a hand-edited generated file is reported instead.
         const existingFiles = yield* readEmittedFiles(out);
-        const removed: Array<string> = [];
-        for (const owned of indexOf(existingFiles)?.files ?? []) {
-          if (expected.has(owned.path) || !isEmittedPath(owned.path)) continue;
-          const existing = existingFiles.find((file) => file.path === owned.path);
-          if (existing === undefined) continue;
-          if ((yield* sha256(existing.contents)) !== owned.checksum) {
-            return yield* Effect.fail(
-              new InvalidDefinition({
-                subject: `emit ${owned.path}`,
-                reason:
-                  "the index claims this file but its contents are not the ones CapsuleDB wrote; remove or rename it yourself",
-              }),
-            );
-          }
-          yield* Effect.tryPromise({
-            try: () => unlink(join(resolve(out), owned.path)),
-            catch: (cause) => operationError(`emit ${owned.path}`, cause),
+        const claimed = new Map(
+          (indexOf(existingFiles)?.files ?? []).map((file) => [file.path, file.checksum]),
+        );
+
+        /**
+         * One rule for touching any file in the folder: CapsuleDB may only
+         * replace or delete bytes it wrote. A path is safe when nothing is
+         * there, when the previous index claims it and its bytes still hash to
+         * what that emit wrote, or when it already holds the new contents.
+         * Everything else is the host's, whatever it looks like.
+         */
+        const mayReplace = (existing: EmitFile, next?: string) =>
+          Effect.gen(function* () {
+            if (existing.contents === next) return true;
+            const checksum = claimed.get(existing.path);
+            return checksum !== undefined && (yield* sha256(existing.contents)) === checksum;
           });
-          removed.push(owned.path);
+
+        const refuse = (path: string) =>
+          Effect.fail(
+            new InvalidDefinition({
+              subject: `emit ${path}`,
+              reason:
+                "this file's contents are not the ones CapsuleDB wrote; remove or rename it yourself",
+            }),
+          );
+
+        // A rename changes a generated path, so the obsolete file has to go or
+        // the folder would fail its own `check`.
+        const removed: Array<string> = [];
+        for (const [path] of claimed) {
+          if (expected.has(path) || !isEmittedPath(path)) continue;
+          const existing = existingFiles.find((file) => file.path === path);
+          if (existing === undefined) continue;
+          if (!(yield* mayReplace(existing))) return yield* refuse(path);
+          yield* Effect.tryPromise({
+            try: () => unlink(join(resolve(out), path)),
+            catch: (cause) => operationError(`emit ${path}`, cause),
+          });
+          removed.push(path);
         }
 
         for (const file of files) {
+          const existing = existingFiles.find((candidate) => candidate.path === file.path);
+          // The index cannot record its own checksum, and it is metadata
+          // CapsuleDB owns outright, so it is always rewritten.
+          if (existing !== undefined && file.path !== INDEX_PATH) {
+            if (!(yield* mayReplace(existing, file.contents))) return yield* refuse(file.path);
+          }
           yield* writeText(join(resolve(out), file.path), file.contents, `emit ${file.path}`);
         }
         return { files, removed };
