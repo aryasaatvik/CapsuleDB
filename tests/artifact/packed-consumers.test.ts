@@ -107,9 +107,52 @@ const runCli = async (
   return JSON.parse(stdout) as Record<string, unknown>;
 };
 
+/**
+ * `emit` and `check` through the packed bin under the consumer's Effect. The
+ * CLI builds its whole command tree at import, so an Effect API it calls that
+ * the installed Effect no longer exports crashes every subcommand before any
+ * output; this proves the bin loads, renders help, and round-trips a folder.
+ */
+const runEmit = async (runtime: "node" | "bun", directory: string): Promise<void> => {
+  const { stdout: help } = await execFileAsync(
+    runtime,
+    [join(directory, "node_modules/.bin/capsuledb"), "emit", "--help"],
+    { cwd: directory, encoding: "utf8" },
+  );
+  if (!help.includes("--dialect")) throw new Error(`${runtime} packed emit help is incomplete`);
+  const emitArgs = ["--module", "./capsule.mjs", "--export", "capsule", "--dialect", "sqlite"];
+  const emitResult = await runCli(runtime, directory, [
+    "emit",
+    ...emitArgs,
+    "--out",
+    "./emitted",
+    "--json",
+  ]);
+  if (emitResult.ok !== true) throw new Error(`${runtime} packed CLI emit failed`);
+  const emitted = (await readdir(join(directory, "emitted"))).filter((file) =>
+    file.endsWith(".sql"),
+  );
+  if (emitted.length === 0) throw new Error(`${runtime} packed emit wrote no SQL`);
+  const emittedSql = await Promise.all(
+    emitted.map((file) => readFile(join(directory, "emitted", file), "utf8")),
+  );
+  if (!emittedSql.some((sql) => sql.includes('CREATE TABLE "packed_table"'))) {
+    throw new Error(`${runtime} packed emit is missing the capsule migration`);
+  }
+  const checkResult = await runCli(runtime, directory, [
+    "check",
+    ...emitArgs,
+    "--out",
+    "./emitted",
+    "--json",
+  ]);
+  if (checkResult.ok !== true) throw new Error(`${runtime} packed CLI emit check failed`);
+};
+
 const runConsumer = async (runtime: "node" | "bun", directory: string): Promise<void> => {
   const manifestPath = join(directory, "manifest.json");
   const artifactPath = join(directory, "d1-artifacts");
+  await runEmit(runtime, directory);
   const writeResult = await runCli(runtime, directory, [
     "manifest",
     "write",
