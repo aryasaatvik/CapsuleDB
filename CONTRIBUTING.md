@@ -22,9 +22,8 @@ Public API changes should include the relevant type and packed-artifact proof.
 
 ## Releases
 
-CapsuleDB uses Tegami for changelogs, versioning, and subsequent npm releases.
-The first `0.1.0` publication is manual; see the [release runbook](docs/releasing.md)
-before enabling the publish workflow's `main` push trigger.
+CapsuleDB uses Tegami for changelogs, versioning, and npm releases. See the
+[release runbook](docs/releasing.md).
 
 ## Compatibility
 
