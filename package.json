@@ -119,16 +119,16 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260822.1",
-    "@effect/sql-d1": "4.0.0-rc.112",
-    "@effect/sql-libsql": "4.0.0-rc.112",
-    "@effect/sql-pg": "4.0.0-rc.112",
-    "@effect/sql-sqlite-bun": "4.0.0-rc.112",
-    "@effect/vitest": "4.0.0-rc.112",
+    "@effect/sql-d1": "4.0.0-rc.117",
+    "@effect/sql-libsql": "4.0.0-rc.117",
+    "@effect/sql-pg": "4.0.0-rc.117",
+    "@effect/sql-sqlite-bun": "4.0.0-rc.117",
+    "@effect/vitest": "4.0.0-rc.117",
     "@libsql/client": "0.17.4",
     "@testcontainers/postgresql": "12.1.0",
     "@types/bun": "1.4.0",
     "drizzle-orm": "1.0.0-rc.5-ab785fc",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.117",
     "miniflare": "3.20250718.3",
     "oxfmt": "0.65.0",
     "oxlint": "1.80.0",
@@ -136,12 +136,12 @@
     "tsdown": "0.22.14",
     "tstyche": "7.2.3",
     "typescript": "7.0.2",
-    "vitest": "4.1.11"
+    "vitest": "5.0.1"
   },
   "peerDependencies": {
-    "@effect/sql-libsql": ">=4.0.0-rc.111 <5",
-    "@effect/sql-sqlite-bun": ">=4.0.0-rc.111 <5",
-    "effect": ">=4.0.0-rc.111 <5"
+    "@effect/sql-libsql": ">=4.0.0-rc.117 <5",
+    "@effect/sql-sqlite-bun": ">=4.0.0-rc.117 <5",
+    "effect": ">=4.0.0-rc.117 <5"
   },
   "peerDependenciesMeta": {
     "@effect/sql-libsql": {
