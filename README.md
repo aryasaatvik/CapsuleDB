@@ -108,7 +108,7 @@ bun run typecheck:examples
 CapsuleDB is not an ORM. It does not expose package-owned tables, rows, query
 builders, raw driver ownership, or a Promise facade as its canonical API. It
 prevents capsule namespace collisions and keeps package-owned persistence
-opaque, but v0.1 does not sandbox trusted package-authored SQL or service code;
+opaque, but it does not sandbox trusted package-authored SQL or service code;
 package authors remain responsible for avoiding cross-capsule physical
 composition.
 
