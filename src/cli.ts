@@ -23,47 +23,47 @@ import { buildManifest, decodeManifest, validateManifest, type Manifest } from "
 import type { Capsule } from "./Capsule.ts";
 import { VERSION } from "./index.ts";
 
-const jsonFlag = Flag.boolean("json").pipe(
+const jsonFlag = Flag.Boolean("json").pipe(
   Flag.withDefault(false),
   Flag.withDescription("Emit one JSON result suitable for CI and agents"),
 );
 
-const moduleFlag = Flag.string("module").pipe(
+const moduleFlag = Flag.String("module").pipe(
   Flag.withDescription("Path to the authored capsule module (required)"),
 );
 
-const exportFlag = Flag.string("export").pipe(
+const exportFlag = Flag.String("export").pipe(
   Flag.withDescription("Explicit named export containing one capsule or a capsule array"),
 );
 
-const outputFlag = Flag.string("output").pipe(
+const outputFlag = Flag.String("output").pipe(
   Flag.withDescription("Manifest file or D1 artifact directory to write"),
 );
 
-const manifestFlag = Flag.string("manifest").pipe(
+const manifestFlag = Flag.String("manifest").pipe(
   Flag.withDescription("Path to the expected manifest JSON"),
 );
 
-const artifactFlag = Flag.string("artifact").pipe(
+const artifactFlag = Flag.String("artifact").pipe(
   Flag.withDescription("Path to an artifact JSON file or generated artifact directory"),
 );
 
-const dialectFlag = Flag.string("dialect").pipe(
+const dialectFlag = Flag.String("dialect").pipe(
   Flag.withDescription("SQL dialect to emit: postgres or sqlite (required)"),
 );
 
-const outFlag = Flag.string("out").pipe(
+const outFlag = Flag.String("out").pipe(
   Flag.withDescription("Directory the SQL files are written to or checked against"),
 );
 
-const providerFlag = Flag.string("provider").pipe(
+const providerFlag = Flag.String("provider").pipe(
   Flag.withDefault(""),
   Flag.withDescription(
     "Provider identity stamped into emitted ledger rows: BunSqlite, Libsql, D1, or Postgres",
   ),
 );
 
-const prefixFlag = Flag.string("prefix").pipe(
+const prefixFlag = Flag.String("prefix").pipe(
   Flag.withDefault(""),
   Flag.withDescription("Ledger table prefix; must match the host registry's prefix"),
 );

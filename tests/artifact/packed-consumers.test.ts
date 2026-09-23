@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import packageJson from "../../package.json" with { type: "json" };
 
 const execFileAsync = promisify(execFile);
-const effectVersion = "4.0.0-rc.112";
+const effectVersion = packageJson.devDependencies.effect;
 
 const fixtureModule = `
 import { Context, Layer } from "effect";
