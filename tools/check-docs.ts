@@ -68,6 +68,16 @@ const exportedNames = (module: string): ReadonlySet<string> => {
   return names;
 };
 
+/** The source module behind an exported subpath, read from its build target. */
+const moduleOf = (subpath: string): string => {
+  const target = Object.entries(packageJson.exports).find(([key]) => key === subpath)?.[1];
+  const file =
+    typeof target === "object" && target !== null && "import" in target ? target.import : undefined;
+  const match = typeof file === "string" ? /^\.\/dist\/(\w+)\.mjs$/.exec(file) : null;
+  if (match?.[1] === undefined) throw new Error(`cannot map ${subpath} to a source module`);
+  return match[1];
+};
+
 const rootExports = exportedNames("index");
 const problems: Array<string> = [];
 
@@ -83,9 +93,22 @@ for (const document of requiredDocuments) {
         problems.push(`${document}: "capsuledb${statement[3] ?? ""}" is not an exported subpath`);
         continue;
       }
-      const module = subpath === "." ? "index" : subpath.slice(2);
+      const module = moduleOf(subpath);
       const available = exportedNames(module);
-      const imported = (statement[2] ?? statement[1] ?? "")
+      const namespace = statement[1];
+      if (namespace !== undefined) {
+        // A namespace import of a subpath: check the members the snippet uses.
+        for (const usage of snippet.matchAll(new RegExp(`\\b${namespace}\\.(\\w+)`, "g"))) {
+          const member = usage[1];
+          if (member !== undefined && !available.has(member)) {
+            problems.push(
+              `${document}: "capsuledb${statement[3] ?? ""}" does not export ${member}`,
+            );
+          }
+        }
+        continue;
+      }
+      const imported = (statement[2] ?? "")
         .split(",")
         .map(
           (name) =>

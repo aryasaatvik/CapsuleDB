@@ -30,10 +30,13 @@ const application = Effect.service(CapsuleService).pipe(
 
 `Registry.layer` runs preparation while the layer is built and only then
 provides each capsule's service, so a service can never observe a database
-whose tables are missing. Preparation ensures the runtime ledger and metadata
-exist, validates existing entries, and applies pending migrations. If it fails,
-the layer fails: keep the host unhealthy and surface the typed failure rather
-than continuing with a partially prepared registry.
+whose tables are missing. Preparation first reads the metadata and ledger in one
+statement; a registry that is already current is Ready from that read, with no
+transaction, lock, or DDL. Otherwise it ensures the runtime ledger and metadata
+exist, validates existing entries, and applies pending migrations under a
+PostgreSQL advisory lock. If it fails, the layer fails: keep the host unhealthy
+and surface the typed failure rather than continuing with a partially prepared
+registry.
 
 `Registry.prepare(options)` is the same work as an `Effect` for a host that
 wants an explicit startup step, and it answers with the `Ready` readiness
@@ -54,6 +57,79 @@ assertion for a host that has already completed preparation; it fails with
 Do not treat a metadata row by itself as readiness. A missing ledger row,
 checksum/name conflict, provider mismatch, database-ahead row, or partial
 migration keeps the registry unavailable and requires operator investigation.
+
+## Serverless hosts: prepare at deploy time
+
+A serverless function builds its layers on every cold start, so even one read
+per registry is latency on a request that may never touch a capsule. Move
+preparation to the deploy and make the runtime check lazy.
+
+At deploy time, the `capsuledb/alchemy` subpath prepares the database from the
+registry's manifest before the new function version publishes:
+
+```ts
+import * as CapsuleDB from "capsuledb/alchemy";
+import { Pg, Registry } from "capsuledb";
+
+// In the Alchemy stack, with CapsuleDB.providers() merged into its providers.
+const registry = Effect.gen(function* () {
+  const manifest = yield* Registry.manifest({ provider: Pg.profile, capsules: [capsule] });
+  return yield* CapsuleDB.Registry("capsules", {
+    url: databaseUrl,
+    provider: "Postgres",
+    manifest,
+  });
+});
+```
+
+Pass the resource's `fingerprint` output to the function as a version-scoped environment
+value, not through a runtime-fetched secret: the dependency is what orders the
+function after the preparation, and an older version keeps reading the value it
+shipped with. The resource's props and lifecycle:
+
+| Prop                                                     | Meaning                                                                 |
+| -------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `url`                                                    | `Redacted` connection URL; the resource opens and closes its own client |
+| `provider`                                               | `"Postgres"`                                                            |
+| `manifest`                                               | output of `Registry.manifest`, verified before any statement            |
+| `prefix`, `allowDestructive`, `allowLegacyLedgerUpgrade` | as for `Registry.layer`                                                 |
+
+- Reconcile runs `Registry.prepare` from the manifest and outputs `fingerprint`,
+  the ledger `provider`, the number of `capsules`, and `prefix`. An unchanged
+  deploy, a rerun, and adoption of a database the runtime already prepared each
+  converge with one read and no DDL.
+- Diff updates only when the URL, provider, prefix, authorizations, or manifest
+  fingerprint change.
+- Delete keeps every table. Dropping capsule data is an operator decision made
+  with a destructive migration, never a side effect of removing the resource.
+- A migration with an Effect step has no SQL form and fails reconcile with
+  `InvalidDefinition`; keep that capsule on runtime preparation.
+
+`alchemy` and `@effect/sql-pg` are optional peer dependencies used only by this
+subpath; the package root never loads them. The same preparation is available
+without Alchemy as `Registry.prepare({ provider, manifest })` for any deploy
+tool that holds the manifest as JSON.
+
+At run time, assert instead of preparing, and do it on first use:
+
+```ts
+Registry.layer({
+  provider: Pg.profile,
+  capsules: [capsule],
+  mode: "assert",
+  readiness: "first-use",
+});
+```
+
+`readiness: "first-use"` builds the layer without a statement. Capsules receive
+the host client wrapped so their first connection, reservation, or transaction
+runs the `mode` check once; concurrent first uses share it and a success is kept
+for the layer's lifetime. A failure reaches the capsule's query as a `SqlError`
+whose cause is the registry error (`NotReady` here), and the next use checks
+again, so a deploy that finishes preparing heals running instances without a
+restart. The check runs outside any transaction the caller has open. Composition
+errors, such as a duplicate capsule, still fail the build. Tests and local
+development can keep `mode: "prepare"` with either readiness.
 
 ## Destructive authorization
 
@@ -97,13 +173,13 @@ Then boot with `mode: "assert"`. The Layer applies nothing and fails with
 Registry.layer({ provider: Pg.profile, capsules: [capsule], mode: "assert" });
 ```
 
-|                            | `prepare` (default)                   | `emit` + `mode: "assert"`                |
-| -------------------------- | ------------------------------------- | ---------------------------------------- |
-| Who applies DDL            | CapsuleDB, at boot                    | your pipeline, at deploy                 |
-| Reviewable SQL in the repo | no                                    | yes                                      |
-| Effect migration steps     | supported                             | rejected; they have no SQL form          |
-| Boot cost                  | one ledger read plus any pending work | one ledger read                          |
-| Drift caught               | at boot                               | at `check` time in CI, and again at boot |
+|                            | `prepare` (default)                         | `emit` + `mode: "assert"`                |
+| -------------------------- | ------------------------------------------- | ---------------------------------------- |
+| Who applies DDL            | CapsuleDB, at boot                          | your pipeline, at deploy                 |
+| Reviewable SQL in the repo | no                                          | yes                                      |
+| Effect migration steps     | supported                                   | rejected; they have no SQL form          |
+| Boot cost                  | one read when current, else the locked path | one read                                 |
+| Drift caught               | at boot                                     | at `check` time in CI, and again at boot |
 
 `capsuledb.emit.json` records which files CapsuleDB owns, so an emit folder can
 be shared with the host's own migrations. Regeneration replaces the files it owns
@@ -157,13 +233,17 @@ and D1 limits.
 
 The CLI's manifest and optional D1 artifact commands are build-time checks.
 They do not deploy to D1, invoke Wrangler, configure bindings, or mutate a
-database. A host may check a packed manifest/artifact in CI, but runtime
-preparation remains authoritative at startup.
+database. A host may check a packed manifest/artifact in CI. Whichever path
+prepared the database — runtime preparation, `emit` output, or the Alchemy
+resource — the runtime readiness check is authoritative.
 
 ## Design-partner sketches
 
 [`examples/samva-shared-client.ts`](../examples/samva-shared-client.ts) shows
 how a host with a shared Effect Drizzle client can pass the underlying
 host-owned SQL seam to CapsuleDB. [`examples/executor-plugin.ts`](../examples/executor-plugin.ts)
-shows a boot-time plugin registry shape. Both are integration sketches for
-discussion; neither Samva nor Executor adoption is claimed by this repository.
+shows a boot-time plugin registry shape, and
+[`examples/serverless-alchemy.ts`](../examples/serverless-alchemy.ts) shows
+deploy-time preparation with a first-use runtime check. They are integration
+sketches for discussion; neither Samva nor Executor adoption is claimed by this
+repository.
