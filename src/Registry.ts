@@ -882,6 +882,67 @@ const eitherOf = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     }),
   );
 
+/** Readiness metadata and every ledger row, as one statement reads them. */
+interface Snapshot {
+  readonly metadata: MetadataRow | undefined;
+  readonly ledgerRows: ReadonlyArray<LedgerRow>;
+}
+
+const SnapshotRowSchema = Schema.Struct({
+  kind: Schema.Union([Schema.Literal("metadata"), Schema.Literal("ledger")]),
+  capsule_id: Schema.NullOr(Schema.String),
+  migration_id: Schema.NullOr(Schema.Number),
+  name: Schema.NullOr(Schema.String),
+  checksum: Schema.String,
+  applied_at: Schema.NullOr(Schema.String),
+  provider: Schema.String,
+  dialect: Schema.NullOr(Schema.String),
+});
+
+const decodeSnapshot = (rows: ReadonlyArray<unknown>): Effect.Effect<Snapshot, unknown> =>
+  Effect.gen(function* () {
+    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(SnapshotRowSchema))(rows);
+    const metadata = yield* Schema.decodeUnknownEffect(Schema.Array(MetadataRowSchema))(
+      decoded
+        .filter((row) => row.kind === "metadata")
+        .map((row) => ({ id: 1, fingerprint: row.checksum, provider: row.provider })),
+    );
+    const ledgerRows = yield* Schema.decodeUnknownEffect(Schema.Array(LedgerRowSchema))(
+      decoded.filter((row) => row.kind === "ledger").map(({ kind: _kind, ...row }) => row),
+    );
+    return { metadata: metadata[0], ledgerRows };
+  });
+
+/**
+ * Read readiness metadata and the whole ledger in a single round trip.
+ *
+ * This is the steady-state read: a registry that is already current answers
+ * from it alone. It yields `undefined` whenever the read cannot be trusted —
+ * the tables are missing, a ledger predates the `dialect` column, or a row does
+ * not decode — and the caller falls back to the catalog-checked path, which
+ * reports each of those precisely. Inside a caller's transaction the read runs
+ * under a savepoint, so an expected failure cannot abort that transaction.
+ */
+const readSnapshot = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+): Effect.Effect<Snapshot | undefined> => {
+  const read = sql`SELECT 'metadata' AS kind, NULL AS capsule_id, NULL AS migration_id,
+      NULL AS name, fingerprint AS checksum, NULL AS applied_at, provider, NULL AS dialect
+    FROM ${sql(registry.metadata)} WHERE id = 1
+    UNION ALL
+    SELECT 'ledger' AS kind, capsule_id, migration_id, name, checksum, applied_at, provider,
+      dialect
+    FROM ${sql(registry.ledger)}
+    ORDER BY kind, capsule_id, migration_id`.pipe(Effect.flatMap(decodeSnapshot));
+  return Effect.serviceOption(sql.transactionService).pipe(
+    Effect.flatMap((transaction) =>
+      transaction._tag === "Some" ? sql.withTransaction(read) : read,
+    ),
+    Effect.match({ onFailure: () => undefined, onSuccess: (snapshot) => snapshot }),
+  );
+};
+
 /**
  * Read the current host-owned readiness without constructing or mutating
  * CapsuleDB tables. Every disagreement the runtime cannot repair by applying
@@ -892,7 +953,9 @@ const readReadiness = (
   registry: Registry,
 ): Effect.Effect<Readiness, SqlError> =>
   Effect.gen(function* () {
-    const expectedProvider = providerName(registry.provider.provider);
+    const snapshot = yield* readSnapshot(sql, registry);
+    if (snapshot !== undefined) return yield* readinessOf(registry, snapshot);
+
     const tablesExist = yield* runtimeTablesExist(sql, registry);
     if (tablesExist === "none") return pending(registry, []);
     if (tablesExist === "partial") return drift(registry, "registry tables are incomplete");
@@ -902,8 +965,19 @@ const readReadiness = (
     const ledgerResult = yield* eitherOf(readLedgerRows(sql, registry));
     if (ledgerResult._tag === "Left") return drift(registry, String(ledgerResult.left));
 
-    const metadata = metadataResult.right;
-    const ledgerRows = ledgerResult.right;
+    return yield* readinessOf(registry, {
+      metadata: metadataResult.right,
+      ledgerRows: ledgerResult.right,
+    });
+  });
+
+/** Judge readiness from metadata and ledger rows that have already been read. */
+const readinessOf = (
+  registry: Registry,
+  { metadata, ledgerRows }: Snapshot,
+): Effect.Effect<Readiness> =>
+  Effect.gen(function* () {
+    const expectedProvider = providerName(registry.provider.provider);
     if (metadata === undefined && ledgerRows.length === 0) return pending(registry, []);
     if (metadata === undefined) {
       return drift(registry, "registry ledger exists without readiness metadata");
@@ -1010,6 +1084,21 @@ const prepareRegistry = (
   registry: Registry,
 ): Effect.Effect<Ready, RegistryRuntimeError> =>
   Effect.gen(function* () {
+    // A current registry is the common case at boot, and it needs no lock, no
+    // DDL, and no transaction: one read proves the recorded fingerprint and a
+    // complete, re-keyed ledger. Anything short of that takes the locked path.
+    const snapshot = yield* readSnapshot(sql, registry);
+    if (
+      snapshot?.metadata?.fingerprint === registry.manifest.fingerprint &&
+      (yield* readinessOf(registry, snapshot))._tag === "Ready"
+    ) {
+      yield* Effect.logDebug("CapsuleDB registry ready").pipe(
+        Effect.annotateLogs("provider", providerName(registry.provider.provider)),
+        Effect.annotateLogs("outcome", "current"),
+      );
+      return ready(registry);
+    }
+
     if (registry.provider.dialect === "postgres") {
       yield* initializePostgres(sql, registry);
     } else {
