@@ -21,3 +21,13 @@ receive the host `SqlClient` wrapped so their first connection, reservation, or 
 Layer's lifetime, and a failure reaches the capsule's query as a `SqlError` whose cause is the
 registry error and runs again on the next use. Composition errors still fail the build. The default,
 `readiness: "boot"`, checks while the Layer is built, as before.
+
+### Prepare from a manifest
+
+`Registry.prepare`, `Registry.assert`, and `Registry.status` also take
+`{ provider, manifest, prefix?, allowDestructive?, allowLegacyLedgerUpgrade? }`, so a deploy tool
+can prepare a database from the serialized output of `Registry.manifest` without loading capsule
+code. The manifest's structure, body checksums, and fingerprint are verified before the database is
+touched, and its SQL bodies for the provider's dialect are what gets applied. A migration with an
+Effect step fails with `InvalidDefinition`, as `emit` does. The ledger and metadata are written
+exactly as capsule preparation writes them, so either path reads the other's database as Ready.

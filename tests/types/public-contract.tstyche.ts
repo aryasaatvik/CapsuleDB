@@ -117,6 +117,21 @@ test("one registry Layer carries every capsule's service", () => {
   >();
 });
 
+test("a deploy tool prepares from a manifest it holds as plain data", () => {
+  const manifest: typeof CapsuleDB.Manifest.Manifest.Encoded = JSON.parse("{}");
+  expect(CapsuleDB.Registry.prepare({ provider: CapsuleDB.Pg.profile, manifest })).type.toBe<
+    Effect.Effect<
+      CapsuleDB.Readiness.Ready,
+      CapsuleDB.Registry.RegistryRuntimeError,
+      SqlClient.SqlClient
+    >
+  >();
+  expect(CapsuleDB.Registry.layer).type.not.toBeCallableWith({
+    provider: CapsuleDB.Pg.profile,
+    manifest,
+  });
+});
+
 test("the public capsule remains opaque", () => {
   expect<CapsuleDB.Capsule.Capsule<never>>().type.not.toHaveProperty("row");
   expect<CapsuleDB.Capsule.Capsule<never>>().type.not.toHaveProperty("query");
