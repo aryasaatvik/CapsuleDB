@@ -100,5 +100,6 @@ module and export. What a release does must not depend on installation topology.
 
 - Not an ORM. Persistence details are the capsule's, not the public contract.
 - Not a deployment service. It does not invoke Wrangler, configure accounts, or
-  manage provider resources.
+  manage provider resources. The optional `capsuledb/alchemy` resource prepares
+  a database the host already runs, from a deploy the host already owns.
 - Not a second connection lifecycle. The host's client stays the host's.

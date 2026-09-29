@@ -52,9 +52,9 @@ export const CapsulesLive = Registry.layer({ provider: Pg.profile, capsules: [ca
 ```
 
 `Registry.layer` creates or checks CapsuleDB's ledger and metadata, applies
-pending migrations, and then provides every registered capsule's service. It
-does not open or close the host client: the layer still requires the host's
-`SqlClient`. See the [capsule-author guide](docs/capsule-authors.md),
+pending migrations, and then provides every registered capsule's service. A
+registry that is already current answers in one read. It does not open or close
+the host client: the layer still requires the host's `SqlClient`. See the [capsule-author guide](docs/capsule-authors.md),
 [host guide](docs/host-applications.md), and [migration runbook](docs/migrations-and-recovery.md)
 for the complete contract.
 
@@ -68,6 +68,31 @@ capsuledb check --module ./capsule.ts --export capsule --dialect postgres --out 
 
 ```ts
 Registry.layer({ provider: Pg.profile, capsules: [capsule], mode: "assert" });
+```
+
+A serverless host can prepare at deploy time with the `capsuledb/alchemy`
+resource and check readiness on a capsule's first query instead of at boot:
+
+```ts
+import * as CapsuleDB from "capsuledb/alchemy";
+
+// Alchemy stack: prepare before the new function version publishes.
+const prepared = Effect.gen(function* () {
+  const manifest = yield* Registry.manifest({ provider: Pg.profile, capsules: [capsule] });
+  return yield* CapsuleDB.Registry("capsules", {
+    url: databaseUrl,
+    provider: "Postgres",
+    manifest,
+  });
+});
+
+// Function: the Layer builds without a statement.
+Registry.layer({
+  provider: Pg.profile,
+  capsules: [capsule],
+  mode: "assert",
+  readiness: "first-use",
+});
 ```
 
 The CLI also writes a deterministic manifest and, for D1, static SQL artifacts:
@@ -116,10 +141,18 @@ CapsuleDB is a library boundary, not a provider deployment service. It does
 not invoke Wrangler, configure D1 accounts, infer installed packages, or
 silently discover capsules. A host explicitly composes the capsules it trusts.
 
+## Entry points
+
+| Import               | Contents                                                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capsuledb`          | every module below as a namespace (`Capsule`, `Registry`, `Pg`, …)                                                                                                                    |
+| `capsuledb/<Module>` | one module: `Capsule`, `D1`, `D1Artifact`, `Dialect`, `Emit`, `Error`, `Libsql`, `Manifest`, `Migration`, `Pg`, `Provider`, `Readiness`, `Registry`, `Schema`, `SqliteBun`, `Testing` |
+| `capsuledb/alchemy`  | the `Registry` Alchemy resource and `providers()`; needs the optional peers `alchemy` and `@effect/sql-pg`                                                                            |
+
 ## Guides
 
 - [Capsule authors](docs/capsule-authors.md) — IDs, private migrations, services, and provider bodies.
-- [Host applications](docs/host-applications.md) — client ownership, preparation, readiness, and authorization.
+- [Host applications](docs/host-applications.md) — client ownership, preparation, readiness, serverless deploy-time preparation, and authorization.
 - [Providers](docs/providers.md) — capability matrix and D1's bounded atomic-batch contract.
 - [Migrations and recovery](docs/migrations-and-recovery.md) — append-only changes and failure recovery.
 - [Design principles](docs/design.md) — the contract and the boundaries it keeps.

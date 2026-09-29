@@ -22,6 +22,7 @@ import { resolve as resolveMigration, type Migration, type Operation } from "./M
 import {
   bodyFor,
   buildManifest,
+  decodeManifest,
   type Manifest,
   type ManifestBody,
   type ManifestError,
@@ -34,21 +35,15 @@ import {
   type ProviderProfileError,
 } from "./Provider.ts";
 import { compileD1Migration, runD1Migration, type D1BatchClient } from "./internal/d1-migrator.ts";
+import * as GatedClient from "./internal/gated-client.ts";
 import { ledgerTables, runTransactionalMigration } from "./internal/transactional-migrator.ts";
 
 /** Existential capsule view retained by a heterogeneous registry. */
 type AnyCapsule = Capsule<never, unknown, unknown>;
 
-/** Explicit registry composition for one provider profile. */
-export interface Options<Caps extends ReadonlyArray<AnyCapsule> = ReadonlyArray<AnyCapsule>> {
+/** What every preparation needs besides the migration history itself. */
+export interface Preparation {
   readonly provider: ProviderProfile;
-  readonly capsules: Caps;
-  /**
-   * `prepare` (default) applies pending migrations while the Layer is built.
-   * `assert` applies nothing and fails unless the database is already Ready,
-   * which is what a host that applied `capsuledb emit` output wants.
-   */
-  readonly mode?: "prepare" | "assert";
   /** Permit migrations marked `destructive`; defaults to `false`. */
   readonly allowDestructive?: boolean;
   /**
@@ -67,6 +62,38 @@ export interface Options<Caps extends ReadonlyArray<AnyCapsule> = ReadonlyArray<
    * a database, but a deployed registry must never change it.
    */
   readonly prefix?: string;
+}
+
+/** Explicit registry composition for one provider profile. */
+export interface Options<
+  Caps extends ReadonlyArray<AnyCapsule> = ReadonlyArray<AnyCapsule>,
+> extends Preparation {
+  readonly capsules: Caps;
+  /**
+   * `prepare` (default) applies pending migrations. `assert` applies nothing
+   * and fails unless the database is already Ready, which is what a host that
+   * prepared at deploy time or applied `capsuledb emit` output wants.
+   */
+  readonly mode?: "prepare" | "assert";
+  /**
+   * When `Registry.layer` runs the `mode` check: `boot` (default) while the
+   * Layer is built, or `first-use` on the first connection a capsule takes.
+   * Ignored by `prepare`, `assert`, and `status`, which always run now.
+   */
+  readonly readiness?: "boot" | "first-use";
+}
+
+/**
+ * A registry described by a published manifest instead of live capsules.
+ *
+ * This is the input a deploy tool holds: plain data it can serialize and diff.
+ * The manifest is verified — structure, every body checksum, and the
+ * fingerprint — before the database is touched, and its SQL bodies for the
+ * provider's dialect are what preparation applies. A database prepared from a
+ * manifest reads Ready to the capsules that produced it, and the reverse.
+ */
+export interface ManifestOptions extends Preparation {
+  readonly manifest: typeof Manifest.Encoded;
 }
 
 /**
@@ -125,10 +152,24 @@ export type RegistryRuntimeError =
   | PartialMigration
   | PreparationFailed;
 
-/** A validated set of capsules and the manifest they describe. */
+/** One migration as this registry's dialect applies it. */
+interface PlannedMigration {
+  readonly id: number;
+  readonly name: string;
+  readonly risk: Migration["risk"];
+  readonly operations: ReadonlyArray<Operation>;
+}
+
+/** A capsule's history, resolved for one dialect. */
+interface PlannedCapsule {
+  readonly id: string;
+  readonly migrations: ReadonlyArray<PlannedMigration>;
+}
+
+/** A validated migration history and the manifest it describes. */
 interface Registry {
   readonly provider: ProviderProfile;
-  readonly capsules: ReadonlyArray<AnyCapsule>;
+  readonly capsules: ReadonlyArray<PlannedCapsule>;
   readonly allowDestructive: boolean;
   readonly allowLegacyLedgerUpgrade: boolean;
   readonly ledger: string;
@@ -136,10 +177,14 @@ interface Registry {
   readonly manifest: Manifest;
 }
 
-const resolveOperations = (
-  migration: Migration,
-  provider: ProviderProfile,
-): ReadonlyArray<Operation> | undefined => resolveMigration(migration, provider.dialect);
+const tablesOf = (prefix: string | undefined) =>
+  Effect.try({
+    try: () => ledgerTables(prefix),
+    catch: (cause) =>
+      cause instanceof InvalidDefinition
+        ? cause
+        : new InvalidDefinition({ subject: "registry prefix", reason: String(cause) }),
+  });
 
 /**
  * Validate explicit capsule composition before any provider state is touched.
@@ -149,7 +194,7 @@ const resolveOperations = (
  * duplicate identifier, and `buildManifest` still verifies both invariants once
  * for the fingerprint it produces.
  */
-const resolve = (options: Options): Effect.Effect<Registry, RegistryError> =>
+const resolveCapsules = (options: Options): Effect.Effect<Registry, RegistryError> =>
   Effect.gen(function* () {
     const provider = yield* makeProviderProfile(options.provider);
 
@@ -165,15 +210,15 @@ const resolve = (options: Options): Effect.Effect<Registry, RegistryError> =>
       }
     }
 
+    const capsules: Array<PlannedCapsule> = [];
     for (const capsule of options.capsules) {
-      const seenMigrationIds: Array<number> = [];
+      const migrations: Array<PlannedMigration> = [];
       for (const migration of capsule.migrations) {
-        if (seenMigrationIds.includes(migration.id)) {
+        if (migrations.some((planned) => planned.id === migration.id)) {
           return yield* Effect.fail(new DuplicateMigrationId({ migrationId: migration.id }));
         }
-        seenMigrationIds.push(migration.id);
 
-        const operations = resolveOperations(migration, provider);
+        const operations = resolveMigration(migration, provider.dialect);
         if (operations === undefined) {
           return yield* Effect.fail(
             new MissingProviderMigration({
@@ -188,27 +233,92 @@ const resolve = (options: Options): Effect.Effect<Registry, RegistryError> =>
             new ProviderMismatch({ dialect: provider.dialect, mode: dynamic._tag }),
           );
         }
+        migrations.push({
+          id: migration.id,
+          name: migration.name,
+          risk: migration.risk,
+          operations,
+        });
       }
+      capsules.push({ id: capsule.id, migrations });
     }
 
-    const tables = yield* Effect.try({
-      try: () => ledgerTables(options.prefix),
-      catch: (cause) =>
-        cause instanceof InvalidDefinition
-          ? cause
-          : new InvalidDefinition({ subject: "registry prefix", reason: String(cause) }),
-    });
-
+    const tables = yield* tablesOf(options.prefix);
     return Object.freeze({
       provider,
-      capsules: Object.freeze([...options.capsules]),
+      capsules: Object.freeze(capsules),
       allowDestructive: options.allowDestructive ?? false,
       allowLegacyLedgerUpgrade: options.allowLegacyLedgerUpgrade ?? false,
       ledger: tables.ledger,
       metadata: tables.metadata,
       manifest: yield* buildManifest({ capsules: options.capsules }),
     });
-  }).pipe(Effect.withSpan("capsuledb.registry.resolve"));
+  });
+
+/**
+ * Verify a published manifest and plan its SQL bodies for the provider.
+ *
+ * A manifest carries only an Effect step's revision, never its code, so a
+ * migration with one cannot be applied from here; it fails exactly as `emit`
+ * refuses it, and that capsule is prepared from its definition instead.
+ */
+const resolveManifest = (options: ManifestOptions): Effect.Effect<Registry, RegistryError> =>
+  Effect.gen(function* () {
+    const provider = yield* makeProviderProfile(options.provider);
+    const manifest = yield* decodeManifest(options.manifest);
+
+    const capsules: Array<PlannedCapsule> = [];
+    for (const capsule of manifest.capsules) {
+      const migrations: Array<PlannedMigration> = [];
+      for (const migration of capsule.migrations) {
+        const body = bodyFor(migration, provider.dialect);
+        if (body === undefined) {
+          return yield* Effect.fail(
+            new MissingProviderMigration({
+              migrationId: migration.id,
+              dialect: provider.dialect,
+            }),
+          );
+        }
+        const operations: Array<Operation> = [];
+        for (const operation of body.operations) {
+          if (operation._tag !== "Sql") {
+            return yield* Effect.fail(
+              new InvalidDefinition({
+                subject: `manifest ${capsule.id} migration ${migration.id}`,
+                reason:
+                  "an Effect migration step has no SQL form; prepare this capsule from its definition",
+              }),
+            );
+          }
+          operations.push({ _tag: "Sql", statements: operation.statements });
+        }
+        migrations.push({
+          id: migration.id,
+          name: migration.name,
+          risk: migration.risk,
+          operations,
+        });
+      }
+      capsules.push({ id: capsule.id, migrations });
+    }
+
+    const tables = yield* tablesOf(options.prefix);
+    return Object.freeze({
+      provider,
+      capsules: Object.freeze(capsules),
+      allowDestructive: options.allowDestructive ?? false,
+      allowLegacyLedgerUpgrade: options.allowLegacyLedgerUpgrade ?? false,
+      ledger: tables.ledger,
+      metadata: tables.metadata,
+      manifest,
+    });
+  });
+
+const resolve = (options: Options | ManifestOptions): Effect.Effect<Registry, RegistryError> =>
+  ("manifest" in options ? resolveManifest(options) : resolveCapsules(options)).pipe(
+    Effect.withSpan("capsuledb.registry.resolve"),
+  );
 
 /** Build the deterministic manifest for a composition without touching a database. */
 export const manifest = (options: Options): Effect.Effect<Manifest, RegistryError> =>
@@ -525,26 +635,9 @@ const writeMetadata = (
       fingerprint = excluded.fingerprint,
       provider = excluded.provider`;
 
-const migrationOperations = (
-  registry: Registry,
-  migration: Migration,
-): Effect.Effect<ReadonlyArray<Operation>, MissingProviderMigration> =>
-  Effect.gen(function* () {
-    const operations = resolveOperations(migration, registry.provider);
-    if (operations === undefined) {
-      return yield* Effect.fail(
-        new MissingProviderMigration({
-          migrationId: migration.id,
-          dialect: registry.provider.dialect,
-        }),
-      );
-    }
-    return operations;
-  });
-
 const unauthorizedDestructive = (
-  capsule: AnyCapsule,
-  migration: Migration,
+  capsule: PlannedCapsule,
+  migration: PlannedMigration,
   registry: Registry,
 ): Effect.Effect<void, DestructiveMigrationUnauthorized> =>
   migration.risk === "destructive" && !registry.allowDestructive
@@ -559,8 +652,8 @@ const unauthorizedDestructive = (
 
 const ledgerConflict = (
   registry: Registry,
-  capsule: AnyCapsule,
-  migration: Migration,
+  capsule: PlannedCapsule,
+  migration: PlannedMigration,
   expected: string,
   actual: string,
 ): LedgerConflict =>
@@ -575,12 +668,12 @@ const ledgerConflict = (
 const applyTransactional = (
   sql: SqlClient.SqlClient,
   registry: Registry,
-  capsule: AnyCapsule,
-  migration: Migration,
+  capsule: PlannedCapsule,
+  migration: PlannedMigration,
   checksum: string,
 ): Effect.Effect<void, RegistryRuntimeError> =>
   Effect.gen(function* () {
-    const operations = yield* migrationOperations(registry, migration);
+    const operations = migration.operations;
     const outcome = yield* runTransactionalMigration({
       sql,
       capsuleId: capsule.id,
@@ -620,12 +713,12 @@ const applyTransactional = (
 const applyD1 = (
   sql: SqlClient.SqlClient,
   registry: Registry,
-  capsule: AnyCapsule,
-  migration: Migration,
+  capsule: PlannedCapsule,
+  migration: PlannedMigration,
   checksum: string,
 ): Effect.Effect<void, RegistryRuntimeError> =>
   Effect.gen(function* () {
-    const operations = yield* migrationOperations(registry, migration);
+    const operations = migration.operations;
     const outcome = yield* runD1Migration({
       sql: sql as D1BatchClient,
       profile: registry.provider,
@@ -670,8 +763,8 @@ const applyD1 = (
 const reconcileFailedClaim = (
   sql: SqlClient.SqlClient,
   registry: Registry,
-  capsule: AnyCapsule,
-  migration: Migration,
+  capsule: PlannedCapsule,
+  migration: PlannedMigration,
   checksum: string,
   error: RegistryRuntimeError,
 ): Effect.Effect<void, RegistryRuntimeError> =>
@@ -739,7 +832,7 @@ const preflightD1Pending = (
           checksum: body.checksum,
           provider: providerName(registry.provider.provider),
           dialect: registry.provider.dialect,
-          operations: yield* migrationOperations(registry, migration),
+          operations: migration.operations,
           ledgerTable: registry.ledger,
         });
       }
@@ -882,6 +975,67 @@ const eitherOf = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     }),
   );
 
+/** Readiness metadata and every ledger row, as one statement reads them. */
+interface Snapshot {
+  readonly metadata: MetadataRow | undefined;
+  readonly ledgerRows: ReadonlyArray<LedgerRow>;
+}
+
+const SnapshotRowSchema = Schema.Struct({
+  kind: Schema.Union([Schema.Literal("metadata"), Schema.Literal("ledger")]),
+  capsule_id: Schema.NullOr(Schema.String),
+  migration_id: Schema.NullOr(Schema.Number),
+  name: Schema.NullOr(Schema.String),
+  checksum: Schema.String,
+  applied_at: Schema.NullOr(Schema.String),
+  provider: Schema.String,
+  dialect: Schema.NullOr(Schema.String),
+});
+
+const decodeSnapshot = (rows: ReadonlyArray<unknown>): Effect.Effect<Snapshot, unknown> =>
+  Effect.gen(function* () {
+    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(SnapshotRowSchema))(rows);
+    const metadata = yield* Schema.decodeUnknownEffect(Schema.Array(MetadataRowSchema))(
+      decoded
+        .filter((row) => row.kind === "metadata")
+        .map((row) => ({ id: 1, fingerprint: row.checksum, provider: row.provider })),
+    );
+    const ledgerRows = yield* Schema.decodeUnknownEffect(Schema.Array(LedgerRowSchema))(
+      decoded.filter((row) => row.kind === "ledger").map(({ kind: _kind, ...row }) => row),
+    );
+    return { metadata: metadata[0], ledgerRows };
+  });
+
+/**
+ * Read readiness metadata and the whole ledger in a single round trip.
+ *
+ * This is the steady-state read: a registry that is already current answers
+ * from it alone. It yields `undefined` whenever the read cannot be trusted —
+ * the tables are missing, a ledger predates the `dialect` column, or a row does
+ * not decode — and the caller falls back to the catalog-checked path, which
+ * reports each of those precisely. Inside a caller's transaction the read runs
+ * under a savepoint, so an expected failure cannot abort that transaction.
+ */
+const readSnapshot = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+): Effect.Effect<Snapshot | undefined> => {
+  const read = sql`SELECT 'metadata' AS kind, NULL AS capsule_id, NULL AS migration_id,
+      NULL AS name, fingerprint AS checksum, NULL AS applied_at, provider, NULL AS dialect
+    FROM ${sql(registry.metadata)} WHERE id = 1
+    UNION ALL
+    SELECT 'ledger' AS kind, capsule_id, migration_id, name, checksum, applied_at, provider,
+      dialect
+    FROM ${sql(registry.ledger)}
+    ORDER BY kind, capsule_id, migration_id`.pipe(Effect.flatMap(decodeSnapshot));
+  return Effect.serviceOption(sql.transactionService).pipe(
+    Effect.flatMap((transaction) =>
+      transaction._tag === "Some" ? sql.withTransaction(read) : read,
+    ),
+    Effect.match({ onFailure: () => undefined, onSuccess: (snapshot) => snapshot }),
+  );
+};
+
 /**
  * Read the current host-owned readiness without constructing or mutating
  * CapsuleDB tables. Every disagreement the runtime cannot repair by applying
@@ -892,7 +1046,9 @@ const readReadiness = (
   registry: Registry,
 ): Effect.Effect<Readiness, SqlError> =>
   Effect.gen(function* () {
-    const expectedProvider = providerName(registry.provider.provider);
+    const snapshot = yield* readSnapshot(sql, registry);
+    if (snapshot !== undefined) return yield* readinessOf(registry, snapshot);
+
     const tablesExist = yield* runtimeTablesExist(sql, registry);
     if (tablesExist === "none") return pending(registry, []);
     if (tablesExist === "partial") return drift(registry, "registry tables are incomplete");
@@ -902,8 +1058,19 @@ const readReadiness = (
     const ledgerResult = yield* eitherOf(readLedgerRows(sql, registry));
     if (ledgerResult._tag === "Left") return drift(registry, String(ledgerResult.left));
 
-    const metadata = metadataResult.right;
-    const ledgerRows = ledgerResult.right;
+    return yield* readinessOf(registry, {
+      metadata: metadataResult.right,
+      ledgerRows: ledgerResult.right,
+    });
+  });
+
+/** Judge readiness from metadata and ledger rows that have already been read. */
+const readinessOf = (
+  registry: Registry,
+  { metadata, ledgerRows }: Snapshot,
+): Effect.Effect<Readiness> =>
+  Effect.gen(function* () {
+    const expectedProvider = providerName(registry.provider.provider);
     if (metadata === undefined && ledgerRows.length === 0) return pending(registry, []);
     if (metadata === undefined) {
       return drift(registry, "registry ledger exists without readiness metadata");
@@ -966,7 +1133,7 @@ const readReadiness = (
 
 /** Report readiness for a composition without applying anything. */
 export const status = (
-  options: Options,
+  options: Options | ManifestOptions,
 ): Effect.Effect<Readiness, RegistryError | SqlError, SqlClient.SqlClient> =>
   Effect.gen(function* () {
     const registry = yield* resolve(options);
@@ -1010,6 +1177,21 @@ const prepareRegistry = (
   registry: Registry,
 ): Effect.Effect<Ready, RegistryRuntimeError> =>
   Effect.gen(function* () {
+    // A current registry is the common case at boot, and it needs no lock, no
+    // DDL, and no transaction: one read proves the recorded fingerprint and a
+    // complete, re-keyed ledger. Anything short of that takes the locked path.
+    const snapshot = yield* readSnapshot(sql, registry);
+    if (
+      snapshot?.metadata?.fingerprint === registry.manifest.fingerprint &&
+      (yield* readinessOf(registry, snapshot))._tag === "Ready"
+    ) {
+      yield* Effect.logDebug("CapsuleDB registry ready").pipe(
+        Effect.annotateLogs("provider", providerName(registry.provider.provider)),
+        Effect.annotateLogs("outcome", "current"),
+      );
+      return ready(registry);
+    }
+
     if (registry.provider.dialect === "postgres") {
       yield* initializePostgres(sql, registry);
     } else {
@@ -1149,20 +1331,19 @@ const prepareRegistry = (
  * CapsuleDB never opens or closes the host client.
  */
 export const prepare = (
-  options: Options,
+  options: Options | ManifestOptions,
 ): Effect.Effect<Ready, RegistryRuntimeError, SqlClient.SqlClient> =>
   Effect.gen(function* () {
     const registry = yield* resolve(options);
     return yield* prepareRegistry(yield* Effect.service(SqlClient.SqlClient), registry);
   }).pipe(Effect.withSpan("capsuledb.registry.prepare"));
 
-/** Assert an already-prepared registry without applying any migration. */
-export const assert = (
-  options: Options,
-): Effect.Effect<Ready, RegistryRuntimeError, SqlClient.SqlClient> =>
+const assertRegistry = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+): Effect.Effect<Ready, SqlError | NotReady> =>
   Effect.gen(function* () {
-    const registry = yield* resolve(options);
-    const readiness = yield* readReadiness(yield* Effect.service(SqlClient.SqlClient), registry);
+    const readiness = yield* readReadiness(sql, registry);
     if (readiness._tag === "Ready") return readiness;
     return yield* Effect.fail(
       new NotReady({
@@ -1174,19 +1355,49 @@ export const assert = (
             : `${readiness.pending.length} migration(s) have not been applied`,
       }),
     );
+  });
+
+/** Assert an already-prepared registry without applying any migration. */
+export const assert = (
+  options: Options | ManifestOptions,
+): Effect.Effect<Ready, RegistryRuntimeError, SqlClient.SqlClient> =>
+  Effect.gen(function* () {
+    const registry = yield* resolve(options);
+    return yield* assertRegistry(yield* Effect.service(SqlClient.SqlClient), registry);
   }).pipe(Effect.withSpan("capsuledb.registry.assert"));
 
+/** The readiness check `mode` selects, against an already-resolved registry. */
+const checkRegistry = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+  mode: Options["mode"],
+): Effect.Effect<Ready, RegistryRuntimeError> =>
+  mode === "assert"
+    ? assertRegistry(sql, registry).pipe(Effect.withSpan("capsuledb.registry.assert"))
+    : prepareRegistry(sql, registry).pipe(Effect.withSpan("capsuledb.registry.prepare"));
+
 /**
- * One Layer that prepares every registered capsule and then provides each
- * capsule's service.
+ * One Layer that checks the registry and provides each capsule's service.
  *
- * Preparation is built first, so a capsule service can never observe a database
- * whose tables are missing. The host still owns the `SqlClient` this layer
- * consumes, along with anything else the capsule layers require.
- *
- * With `mode: "assert"` the Layer applies nothing and fails unless the database
- * already matches the registered history — the boot path for a host that
+ * `mode` picks the check: `prepare` applies pending migrations, and `assert`
+ * applies nothing and fails unless the database already matches the registered
+ * history — the path for a host that prepared the database at deploy time or
  * applied `capsuledb emit` output through its own migration pipeline.
+ *
+ * `readiness` picks when the check runs:
+ *
+ * - `boot` (default) runs it while the Layer is built, so the Layer fails
+ *   instead of providing capsules over a database that is not ready.
+ * - `first-use` builds the Layer without touching the database. Capsules
+ *   receive the host client wrapped so that their first connection runs the
+ *   check; a success is kept for the Layer's lifetime, and a failure reaches the
+ *   capsule query as a `SqlError` whose cause is the registry error, then runs
+ *   again on the next use. Composition errors still fail the Layer build. This
+ *   keeps a serverless cold start that never touches a capsule free of registry
+ *   work.
+ *
+ * The host still owns the `SqlClient` this layer consumes, along with anything
+ * else the capsule layers require.
  */
 export const layer = <const Caps extends ReadonlyArray<AnyCapsule>>(
   options: Options<Caps>,
@@ -1195,9 +1406,6 @@ export const layer = <const Caps extends ReadonlyArray<AnyCapsule>>(
   Failures<Caps> | RegistryRuntimeError,
   Requirements<Caps> | SqlClient.SqlClient
 > => {
-  const prepared = Layer.effectDiscard(
-    options.mode === "assert" ? assert(options) : prepare(options),
-  );
   const services = options.capsules.map(
     (capsule) => capsule.layer as Layer.Layer<never, unknown, unknown>,
   );
@@ -1205,7 +1413,32 @@ export const layer = <const Caps extends ReadonlyArray<AnyCapsule>>(
     services.length === 0
       ? Layer.empty
       : services.reduce((left, right) => Layer.merge(left, right));
-  return merged.pipe(Layer.provide(prepared)) as Layer.Layer<
+  const checked =
+    options.readiness === "first-use"
+      ? merged.pipe(
+          Layer.provide(
+            Layer.effect(
+              SqlClient.SqlClient,
+              Effect.gen(function* () {
+                const registry = yield* resolve(options);
+                const sql = yield* Effect.service(SqlClient.SqlClient);
+                return yield* GatedClient.make(sql, checkRegistry(sql, registry, options.mode));
+              }),
+            ),
+          ),
+        )
+      : merged.pipe(
+          Layer.provide(
+            Layer.effectDiscard(
+              Effect.gen(function* () {
+                const registry = yield* resolve(options);
+                const sql = yield* Effect.service(SqlClient.SqlClient);
+                yield* checkRegistry(sql, registry, options.mode);
+              }),
+            ),
+          ),
+        );
+  return checked as Layer.Layer<
     Services<Caps>,
     Failures<Caps> | RegistryRuntimeError,
     Requirements<Caps> | SqlClient.SqlClient

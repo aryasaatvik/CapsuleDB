@@ -96,9 +96,40 @@ test("one registry Layer carries every capsule's service", () => {
     }),
   ).type.toBe<typeof layer>();
 
+  // First-use readiness moves the check, not the Layer's contract.
+  expect(
+    CapsuleDB.Registry.layer({
+      provider: CapsuleDB.Pg.profile,
+      capsules: [tokens, audit],
+      mode: "assert",
+      readiness: "first-use",
+    }),
+  ).type.toBe<typeof layer>();
+
+  expect(CapsuleDB.Registry.layer).type.not.toBeCallableWith({
+    provider: CapsuleDB.Pg.profile,
+    capsules: [tokens],
+    readiness: "lazy",
+  });
+
   expect(layer).type.toBeAssignableTo<
     Layer.Layer<TokenService | AuditService, unknown, SqlClient.SqlClient>
   >();
+});
+
+test("a deploy tool prepares from a manifest it holds as plain data", () => {
+  const manifest: typeof CapsuleDB.Manifest.Manifest.Encoded = JSON.parse("{}");
+  expect(CapsuleDB.Registry.prepare({ provider: CapsuleDB.Pg.profile, manifest })).type.toBe<
+    Effect.Effect<
+      CapsuleDB.Readiness.Ready,
+      CapsuleDB.Registry.RegistryRuntimeError,
+      SqlClient.SqlClient
+    >
+  >();
+  expect(CapsuleDB.Registry.layer).type.not.toBeCallableWith({
+    provider: CapsuleDB.Pg.profile,
+    manifest,
+  });
 });
 
 test("the public capsule remains opaque", () => {

@@ -58,7 +58,9 @@ preparation finishes the job.
    `createIndex`, or drop to `Migration.sql` for engine-specific statements;
    use `Migration.effect` only for transactional providers that support it.
 4. Check the manifest and, for D1, regenerate and check optional artifacts.
-5. Deploy the host and build `Registry.layer` before exposing capsule services.
+5. Deploy the host and build `Registry.layer` before exposing capsule services,
+   or prepare during the deploy (the `capsuledb/alchemy` resource or
+   `Registry.prepare({ provider, manifest })`) and boot with `mode: "assert"`.
 
 ```sh
 bun run capsuledb -- manifest check \

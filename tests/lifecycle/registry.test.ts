@@ -1,6 +1,6 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Fiber, Layer } from "effect";
+import { Deferred, Effect, Fiber, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
@@ -286,6 +286,9 @@ describe("registry migration lifecycle", () => {
   it.effect("rolls back an interrupted transactional migration", () =>
     withSqlite(
       Effect.gen(function* () {
+        // Interrupt once the migration's DDL has run inside its transaction, not
+        // after a guessed delay, so the rollback is what the test observes.
+        const started = yield* Deferred.make<void>();
         const migration = Migration.make({
           id: 1,
           name: "interruptible-migration",
@@ -298,6 +301,7 @@ describe("registry migration lifecycle", () => {
                 yield* sql.unsafe(
                   'CREATE TABLE "lifecycle_interruptible" (id TEXT PRIMARY KEY NOT NULL)',
                 );
+                yield* Deferred.succeed(started, undefined);
                 yield* Effect.sleep("10 seconds");
               }),
             ),
@@ -310,7 +314,7 @@ describe("registry migration lifecycle", () => {
         });
         const registry = { provider: BunSqliteProfile, capsules: [capsule] };
         const fiber = yield* Registry.prepare(registry).pipe(Effect.forkScoped);
-        yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 20)));
+        yield* Deferred.await(started);
         yield* Fiber.interrupt(fiber);
         const sql = yield* Effect.service(SqlClient.SqlClient);
         assert.deepStrictEqual(
