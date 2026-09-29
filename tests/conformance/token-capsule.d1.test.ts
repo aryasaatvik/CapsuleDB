@@ -44,6 +44,32 @@ describe("reference token capsule over a host-supplied D1 binding", () => {
   );
 
   it.effect(
+    "keeps the atomic batch when readiness is checked on first use",
+    () =>
+      withD1(() =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const service = yield* Effect.service(OneTimeTokens);
+            const issued = yield* service.issue("2099-01-01T00:00:00.000Z");
+            const consumed = yield* service.consume(issued.token);
+            assert.strictEqual(consumed.token, issued.token);
+            const replay = yield* service.consume(issued.token).pipe(Effect.flip);
+            assert.strictEqual(replay._tag, "TokenAlreadyConsumed");
+          }).pipe(
+            Effect.provide(
+              Registry.layer({
+                provider: d1Profile,
+                capsules: [referenceTokenCapsule],
+                readiness: "first-use",
+              }),
+            ),
+          ),
+        ),
+      ),
+    60_000,
+  );
+
+  it.effect(
     "rolls back token consumption when the audit statement fails",
     () =>
       withD1((client) =>

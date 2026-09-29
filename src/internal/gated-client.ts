@@ -52,8 +52,9 @@ const asSqlError = (cause: unknown): SqlError =>
  * Wrap a host client so that every connection it hands out first waits for
  * `check` to succeed.
  *
- * The gate sits on connection acquisition, reservation, and transactions, so it
- * covers any capsule without knowing what the capsule queries. Success is
+ * The gate sits on connection acquisition, reservation, transactions, and any
+ * driver-specific member that returns an Effect, so it covers any capsule
+ * without knowing what the capsule queries. Success is
  * remembered for the life of the wrapper; failure is not, so the next use runs
  * the check again. Concurrent first uses share one check.
  *
@@ -123,6 +124,24 @@ export const make = <E>(
           reactiveMailbox: inner.reactiveMailbox,
         },
       );
+      // Driver clients extend `SqlClient` (D1's `batch`, PostgreSQL's `listen`,
+      // SQLite's `export`), and capsules detect those capabilities by
+      // presence. Carry every member this wrapper does not define, gating the
+      // ones that return an Effect.
+      for (const key of Object.keys(inner)) {
+        if (key in client) continue;
+        const member: unknown = Reflect.get(inner, key);
+        Reflect.set(
+          client,
+          key,
+          Predicate.isFunction(member)
+            ? (...args: ReadonlyArray<unknown>) => {
+                const result: unknown = Reflect.apply(member, inner, args);
+                return Effect.isEffect(result) ? Effect.andThen(awaitReady, result) : result;
+              }
+            : member,
+        );
+      }
       // `safe` is the client itself, a self-reference the object literal
       // above cannot type; `SqlClient.make` assigns it the same way.
       const complete = Object.assign(client, { safe: client }) as SqlClient.SqlClient;

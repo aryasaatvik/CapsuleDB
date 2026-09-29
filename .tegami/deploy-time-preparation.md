@@ -19,7 +19,8 @@ read runs under a savepoint, so an empty PostgreSQL database cannot abort that t
 receive the host `SqlClient` wrapped so their first connection, reservation, or transaction runs the
 `mode` check (`prepare` or `assert`) once; concurrent first uses share it, a success is kept for the
 Layer's lifetime, and a failure reaches the capsule's query as a `SqlError` whose cause is the
-registry error and runs again on the next use. Composition errors still fail the build. The default,
+registry error and runs again on the next use. Driver-specific members such as D1's `batch` stay on
+the wrapped client and are gated the same way. Composition errors still fail the build. The default,
 `readiness: "boot"`, checks while the Layer is built, as before.
 
 ### Prepare from a manifest
