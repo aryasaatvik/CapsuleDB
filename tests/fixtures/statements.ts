@@ -6,6 +6,8 @@ export interface Recording {
   readonly statements: ReadonlyArray<string>;
   /** How many transactions (including savepoints) were opened. */
   readonly transactions: number;
+  /** How many spans carried each name, for counting higher-level operations. */
+  readonly spans: (name: string) => number;
 }
 
 /**
@@ -36,6 +38,7 @@ export const recordStatements = <A, E, R>(
             .filter((span) => span.name === "sql.execute")
             .map((span) => String(span.attributes.get("db.query.text"))),
           transactions: spans.filter((span) => span.name === "sql.transaction").length,
+          spans: (name) => spans.filter((span) => span.name === name).length,
         };
         return [value, recording] as const;
       }),

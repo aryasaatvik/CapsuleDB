@@ -34,6 +34,7 @@ import {
   type ProviderProfileError,
 } from "./Provider.ts";
 import { compileD1Migration, runD1Migration, type D1BatchClient } from "./internal/d1-migrator.ts";
+import * as GatedClient from "./internal/gated-client.ts";
 import { ledgerTables, runTransactionalMigration } from "./internal/transactional-migrator.ts";
 
 /** Existential capsule view retained by a heterogeneous registry. */
@@ -44,11 +45,17 @@ export interface Options<Caps extends ReadonlyArray<AnyCapsule> = ReadonlyArray<
   readonly provider: ProviderProfile;
   readonly capsules: Caps;
   /**
-   * `prepare` (default) applies pending migrations while the Layer is built.
-   * `assert` applies nothing and fails unless the database is already Ready,
-   * which is what a host that applied `capsuledb emit` output wants.
+   * `prepare` (default) applies pending migrations. `assert` applies nothing
+   * and fails unless the database is already Ready, which is what a host that
+   * prepared at deploy time or applied `capsuledb emit` output wants.
    */
   readonly mode?: "prepare" | "assert";
+  /**
+   * When `Registry.layer` runs the `mode` check: `boot` (default) while the
+   * Layer is built, or `first-use` on the first connection a capsule takes.
+   * Ignored by `prepare`, `assert`, and `status`, which always run now.
+   */
+  readonly readiness?: "boot" | "first-use";
   /** Permit migrations marked `destructive`; defaults to `false`. */
   readonly allowDestructive?: boolean;
   /**
@@ -1245,13 +1252,12 @@ export const prepare = (
     return yield* prepareRegistry(yield* Effect.service(SqlClient.SqlClient), registry);
   }).pipe(Effect.withSpan("capsuledb.registry.prepare"));
 
-/** Assert an already-prepared registry without applying any migration. */
-export const assert = (
-  options: Options,
-): Effect.Effect<Ready, RegistryRuntimeError, SqlClient.SqlClient> =>
+const assertRegistry = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+): Effect.Effect<Ready, SqlError | NotReady> =>
   Effect.gen(function* () {
-    const registry = yield* resolve(options);
-    const readiness = yield* readReadiness(yield* Effect.service(SqlClient.SqlClient), registry);
+    const readiness = yield* readReadiness(sql, registry);
     if (readiness._tag === "Ready") return readiness;
     return yield* Effect.fail(
       new NotReady({
@@ -1263,19 +1269,49 @@ export const assert = (
             : `${readiness.pending.length} migration(s) have not been applied`,
       }),
     );
+  });
+
+/** Assert an already-prepared registry without applying any migration. */
+export const assert = (
+  options: Options,
+): Effect.Effect<Ready, RegistryRuntimeError, SqlClient.SqlClient> =>
+  Effect.gen(function* () {
+    const registry = yield* resolve(options);
+    return yield* assertRegistry(yield* Effect.service(SqlClient.SqlClient), registry);
   }).pipe(Effect.withSpan("capsuledb.registry.assert"));
 
+/** The readiness check `mode` selects, against an already-resolved registry. */
+const checkRegistry = (
+  sql: SqlClient.SqlClient,
+  registry: Registry,
+  mode: Options["mode"],
+): Effect.Effect<Ready, RegistryRuntimeError> =>
+  mode === "assert"
+    ? assertRegistry(sql, registry).pipe(Effect.withSpan("capsuledb.registry.assert"))
+    : prepareRegistry(sql, registry).pipe(Effect.withSpan("capsuledb.registry.prepare"));
+
 /**
- * One Layer that prepares every registered capsule and then provides each
- * capsule's service.
+ * One Layer that checks the registry and provides each capsule's service.
  *
- * Preparation is built first, so a capsule service can never observe a database
- * whose tables are missing. The host still owns the `SqlClient` this layer
- * consumes, along with anything else the capsule layers require.
- *
- * With `mode: "assert"` the Layer applies nothing and fails unless the database
- * already matches the registered history — the boot path for a host that
+ * `mode` picks the check: `prepare` applies pending migrations, and `assert`
+ * applies nothing and fails unless the database already matches the registered
+ * history — the path for a host that prepared the database at deploy time or
  * applied `capsuledb emit` output through its own migration pipeline.
+ *
+ * `readiness` picks when the check runs:
+ *
+ * - `boot` (default) runs it while the Layer is built, so the Layer fails
+ *   instead of providing capsules over a database that is not ready.
+ * - `first-use` builds the Layer without touching the database. Capsules
+ *   receive the host client wrapped so that their first connection runs the
+ *   check; a success is kept for the Layer's lifetime, and a failure reaches the
+ *   capsule query as a `SqlError` whose cause is the registry error, then runs
+ *   again on the next use. Composition errors still fail the Layer build. This
+ *   keeps a serverless cold start that never touches a capsule free of registry
+ *   work.
+ *
+ * The host still owns the `SqlClient` this layer consumes, along with anything
+ * else the capsule layers require.
  */
 export const layer = <const Caps extends ReadonlyArray<AnyCapsule>>(
   options: Options<Caps>,
@@ -1284,9 +1320,6 @@ export const layer = <const Caps extends ReadonlyArray<AnyCapsule>>(
   Failures<Caps> | RegistryRuntimeError,
   Requirements<Caps> | SqlClient.SqlClient
 > => {
-  const prepared = Layer.effectDiscard(
-    options.mode === "assert" ? assert(options) : prepare(options),
-  );
   const services = options.capsules.map(
     (capsule) => capsule.layer as Layer.Layer<never, unknown, unknown>,
   );
@@ -1294,7 +1327,32 @@ export const layer = <const Caps extends ReadonlyArray<AnyCapsule>>(
     services.length === 0
       ? Layer.empty
       : services.reduce((left, right) => Layer.merge(left, right));
-  return merged.pipe(Layer.provide(prepared)) as Layer.Layer<
+  const checked =
+    options.readiness === "first-use"
+      ? merged.pipe(
+          Layer.provide(
+            Layer.effect(
+              SqlClient.SqlClient,
+              Effect.gen(function* () {
+                const registry = yield* resolve(options);
+                const sql = yield* Effect.service(SqlClient.SqlClient);
+                return yield* GatedClient.make(sql, checkRegistry(sql, registry, options.mode));
+              }),
+            ),
+          ),
+        )
+      : merged.pipe(
+          Layer.provide(
+            Layer.effectDiscard(
+              Effect.gen(function* () {
+                const registry = yield* resolve(options);
+                const sql = yield* Effect.service(SqlClient.SqlClient);
+                yield* checkRegistry(sql, registry, options.mode);
+              }),
+            ),
+          ),
+        );
+  return checked as Layer.Layer<
     Services<Caps>,
     Failures<Caps> | RegistryRuntimeError,
     Requirements<Caps> | SqlClient.SqlClient

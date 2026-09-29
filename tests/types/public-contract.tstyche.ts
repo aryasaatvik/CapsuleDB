@@ -96,6 +96,22 @@ test("one registry Layer carries every capsule's service", () => {
     }),
   ).type.toBe<typeof layer>();
 
+  // First-use readiness moves the check, not the Layer's contract.
+  expect(
+    CapsuleDB.Registry.layer({
+      provider: CapsuleDB.Pg.profile,
+      capsules: [tokens, audit],
+      mode: "assert",
+      readiness: "first-use",
+    }),
+  ).type.toBe<typeof layer>();
+
+  expect(CapsuleDB.Registry.layer).type.not.toBeCallableWith({
+    provider: CapsuleDB.Pg.profile,
+    capsules: [tokens],
+    readiness: "lazy",
+  });
+
   expect(layer).type.toBeAssignableTo<
     Layer.Layer<TokenService | AuditService, unknown, SqlClient.SqlClient>
   >();
