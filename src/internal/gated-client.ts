@@ -1,4 +1,4 @@
-import { Context, Effect, Predicate, Semaphore } from "effect";
+import { Context, Effect, Predicate, Semaphore, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { Acquirer, Borrower } from "effect/unstable/sql/SqlConnection";
 import { SqlError, UnknownError } from "effect/unstable/sql/SqlError";
@@ -53,8 +53,8 @@ const asSqlError = (cause: unknown): SqlError =>
  * `check` to succeed.
  *
  * The gate sits on connection acquisition, reservation, transactions, and any
- * driver-specific member that returns an Effect, so it covers any capsule
- * without knowing what the capsule queries. Success is
+ * driver-specific member that returns an Effect or a Stream, so it covers any
+ * capsule without knowing what the capsule queries. Success is
  * remembered for the life of the wrapper; failure is not, so the next use runs
  * the check again. Concurrent first uses share one check.
  *
@@ -127,7 +127,7 @@ export const make = <E>(
       // Driver clients extend `SqlClient` (D1's `batch`, PostgreSQL's `listen`,
       // SQLite's `export`), and capsules detect those capabilities by
       // presence. Carry every member this wrapper does not define, gating the
-      // ones that return an Effect.
+      // ones that return an Effect or a Stream.
       for (const key of Object.keys(inner)) {
         if (key in client) continue;
         const member: unknown = Reflect.get(inner, key);
@@ -137,7 +137,9 @@ export const make = <E>(
           Predicate.isFunction(member)
             ? (...args: ReadonlyArray<unknown>) => {
                 const result: unknown = Reflect.apply(member, inner, args);
-                return Effect.isEffect(result) ? Effect.andThen(awaitReady, result) : result;
+                if (Effect.isEffect(result)) return Effect.andThen(awaitReady, result);
+                if (Stream.isStream(result)) return Stream.unwrap(Effect.as(awaitReady, result));
+                return result;
               }
             : member,
         );
