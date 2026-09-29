@@ -31,3 +31,14 @@ code. The manifest's structure, body checksums, and fingerprint are verified bef
 touched, and its SQL bodies for the provider's dialect are what gets applied. A migration with an
 Effect step fails with `InvalidDefinition`, as `emit` does. The ledger and metadata are written
 exactly as capsule preparation writes them, so either path reads the other's database as Ready.
+
+### `capsuledb/alchemy`: prepare the registry at deploy time
+
+The new `capsuledb/alchemy` subpath exports a `CapsuleDB.Registry` Alchemy resource and its
+`providers()` collection. Given a PostgreSQL connection `url`, `provider: "Postgres"`, and the
+registry `manifest`, reconcile prepares the database from the manifest and outputs its
+`fingerprint`, ledger `provider`, capsule count, and `prefix`. Diff updates only when the URL,
+provider, prefix, authorizations, or manifest fingerprint change; an unchanged or already-prepared
+database reconciles with a single read, and delete keeps every table. `alchemy` (`>=2.0.0-beta.79
+<3`) and `@effect/sql-pg` (`>=4.0.0-rc.117 <5`) are optional peer dependencies used only by this
+subpath; the package root never imports them.

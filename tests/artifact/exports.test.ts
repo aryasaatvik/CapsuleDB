@@ -47,10 +47,14 @@ import * as CapsuleDB from "capsuledb";
 import { D1, Libsql, Pg } from "capsuledb";
 import packageJson from "capsuledb/package.json" with { type: "json" };
 
+// Subpaths that exist to integrate an optional peer stay out of the root, so
+// the root never loads that peer.
+const integrations = ["./alchemy"];
+
 // Every declared subpath resolves, and the root namespace surface is exactly
 // one namespace per subpath plus VERSION - no flat or duplicated exports.
 const subpaths = Object.keys(packageJson.exports).filter(
-  (key) => key !== "." && key !== "./package.json",
+  (key) => key !== "." && key !== "./package.json" && !integrations.includes(key),
 );
 for (const subpath of subpaths) {
   await import("capsuledb" + subpath.slice(1));
@@ -73,6 +77,19 @@ const providerProfiles = [
 for (const [rootProvider, subpathProvider, provider] of providerProfiles) {
   if (rootProvider.profile.provider !== provider || subpathProvider.provider !== provider) {
     throw new Error("Packed provider profile mismatch for " + provider);
+  }
+}
+
+// Without the optional peers installed, the integration fails on the peer it
+// names, which proves the root and every other subpath loaded without it.
+for (const integration of integrations) {
+  try {
+    await import("capsuledb" + integration.slice(1));
+    throw new Error("Integration subpath resolved without its optional peer: " + integration);
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "ERR_MODULE_NOT_FOUND") {
+      throw error;
+    }
   }
 }
 

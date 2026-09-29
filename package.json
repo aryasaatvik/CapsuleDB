@@ -34,6 +34,10 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
     },
+    "./alchemy": {
+      "types": "./dist/Alchemy.d.mts",
+      "import": "./dist/Alchemy.mjs"
+    },
     "./Capsule": {
       "types": "./dist/Capsule.d.mts",
       "import": "./dist/Capsule.mjs"
@@ -127,6 +131,7 @@
     "@libsql/client": "0.17.4",
     "@testcontainers/postgresql": "12.1.0",
     "@types/bun": "1.4.0",
+    "alchemy": "2.0.0-beta.79",
     "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "effect": "4.0.0-rc.117",
     "miniflare": "3.20250718.3",
@@ -140,14 +145,22 @@
   },
   "peerDependencies": {
     "@effect/sql-libsql": ">=4.0.0-rc.117 <5",
+    "@effect/sql-pg": ">=4.0.0-rc.117 <5",
     "@effect/sql-sqlite-bun": ">=4.0.0-rc.117 <5",
+    "alchemy": ">=2.0.0-beta.79 <3",
     "effect": ">=4.0.0-rc.117 <5"
   },
   "peerDependenciesMeta": {
     "@effect/sql-libsql": {
       "optional": true
     },
+    "@effect/sql-pg": {
+      "optional": true
+    },
     "@effect/sql-sqlite-bun": {
+      "optional": true
+    },
+    "alchemy": {
       "optional": true
     }
   },

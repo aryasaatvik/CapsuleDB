@@ -4,6 +4,7 @@ export default defineConfig({
   clean: true,
   dts: true,
   entry: {
+    Alchemy: "src/Alchemy.ts",
     Capsule: "src/Capsule.ts",
     D1: "src/D1.ts",
     D1Artifact: "src/D1Artifact.ts",

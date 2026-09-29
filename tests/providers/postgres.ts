@@ -7,10 +7,14 @@ import * as Reactivity from "effect/unstable/reactivity/Reactivity";
 
 /**
  * Run a PostgreSQL assertion against one disposable local container and one
- * host-owned Effect client. CapsuleDB receives only the generic client layer.
+ * host-owned Effect client. CapsuleDB receives only the generic client layer;
+ * the URL is for code that opens its own client, as a deploy tool does.
  */
 export const withPostgres = <A, E>(
-  effect: (client: PgClient.PgClient) => Effect.Effect<A, E, SqlClient.SqlClient>,
+  effect: (
+    client: PgClient.PgClient,
+    url: Redacted.Redacted<string>,
+  ) => Effect.Effect<A, E, SqlClient.SqlClient>,
 ): Effect.Effect<A, E | SqlError> =>
   Effect.acquireUseRelease(
     Effect.promise(() =>
@@ -23,11 +27,11 @@ export const withPostgres = <A, E>(
     (container: StartedPostgreSqlContainer) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const client = yield* PgClient.make({
-            url: Redacted.make(container.getConnectionUri()),
-            maxConnections: 4,
-          }).pipe(Effect.provide(Reactivity.layer));
-          return yield* effect(client).pipe(
+          const url = Redacted.make(container.getConnectionUri());
+          const client = yield* PgClient.make({ url, maxConnections: 4 }).pipe(
+            Effect.provide(Reactivity.layer),
+          );
+          return yield* effect(client, url).pipe(
             Effect.provide(PgClient.layerFrom(Effect.succeed(client))),
           );
         }),
