@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -80,14 +80,20 @@ for (const [rootProvider, subpathProvider, provider] of providerProfiles) {
   }
 }
 
-// Without the optional peers installed, the integration fails on the peer it
-// names, which proves the root and every other subpath loaded without it.
+// Without the optional peers installed, the integration fails on a peer
+// package, not on a missing CapsuleDB file, which proves the root and every
+// other subpath loaded without it.
 for (const integration of integrations) {
   try {
     await import("capsuledb" + integration.slice(1));
     throw new Error("Integration subpath resolved without its optional peer: " + integration);
   } catch (error) {
-    if (!(error instanceof Error) || !("code" in error) || error.code !== "ERR_MODULE_NOT_FOUND") {
+    if (
+      !(error instanceof Error) ||
+      !("code" in error) ||
+      error.code !== "ERR_MODULE_NOT_FOUND" ||
+      !/Cannot find package '(alchemy|@effect.sql-pg)'/.test(error.message)
+    ) {
       throw error;
     }
   }
@@ -104,6 +110,38 @@ try {
 `,
       );
       await execFileAsync("node", [join(directory, "consumer.mjs")], {
+        cwd: directory,
+        encoding: "utf8",
+      });
+
+      // With the optional peers present, the integration subpath loads and
+      // exposes its resource. The peers are linked from this checkout rather
+      // than installed, so the check needs no registry access.
+      await mkdir(join(directory, "node_modules", "@effect"), { recursive: true });
+      await Promise.all(
+        ["alchemy", "@effect/sql-pg"].map((peer) =>
+          symlink(
+            join(process.cwd(), "node_modules", peer),
+            join(directory, "node_modules", peer),
+            "dir",
+          ),
+        ),
+      );
+      await writeFile(
+        join(directory, "integration.mjs"),
+        `
+import * as CapsuleDB from "capsuledb/alchemy";
+const exported = Object.keys(CapsuleDB).sort();
+const expected = ["Providers", "Registry", "RegistryProvider", "providers"];
+if (JSON.stringify(exported) !== JSON.stringify(expected)) {
+  throw new Error("capsuledb/alchemy surface drifted: " + JSON.stringify(exported));
+}
+if (CapsuleDB.Registry.Type !== "CapsuleDB.Registry") {
+  throw new Error("capsuledb/alchemy registers the wrong resource type");
+}
+`,
+      );
+      await execFileAsync("node", [join(directory, "integration.mjs")], {
         cwd: directory,
         encoding: "utf8",
       });
