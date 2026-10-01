@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Console, Effect } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 import { realpathSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";

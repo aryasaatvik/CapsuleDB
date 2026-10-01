@@ -5,7 +5,7 @@
  * manifest the function asserts.
  */
 import { Effect, type Layer, type Redacted } from "effect";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 import { type Capsule, Pg, Registry } from "capsuledb";
 import * as CapsuleDB from "capsuledb/alchemy";

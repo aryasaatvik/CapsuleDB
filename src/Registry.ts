@@ -1,6 +1,6 @@
 import { Effect, Layer, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import * as SqlClient from "effect/sql/SqlClient";
+import type { SqlError } from "effect/sql/SqlError";
 
 import type { Capsule } from "./Capsule.ts";
 import {
@@ -352,14 +352,14 @@ const LedgerRowSchema = Schema.Struct({
   capsule_id: Schema.String,
   migration_id: Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))),
   name: Schema.String,
-  checksum: Schema.String.pipe(Schema.check(Schema.isLengthBetween(64, 64))),
+  checksum: Schema.String.pipe(Schema.check(Schema.isBetweenLength(64, 64))),
   applied_at: AppliedAt,
   provider: Schema.String,
   dialect: Schema.NullOr(Schema.String),
 });
 const MetadataRowSchema = Schema.Struct({
   id: Schema.Literal(1),
-  fingerprint: Schema.String.pipe(Schema.check(Schema.isLengthBetween(64, 64))),
+  fingerprint: Schema.String.pipe(Schema.check(Schema.isBetweenLength(64, 64))),
   provider: Schema.String,
 });
 const CatalogCountSchema = Schema.Struct({

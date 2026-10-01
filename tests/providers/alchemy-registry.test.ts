@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import type { PlanStatusSession, ScopedPlanStatusSession } from "alchemy/Report";
 import { Effect, Redacted } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import {
   Registry as RegistryResource,

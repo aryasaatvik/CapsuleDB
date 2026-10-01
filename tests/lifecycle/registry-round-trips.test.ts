@@ -1,7 +1,7 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { profile as postgresProfile } from "../../src/Pg.ts";
 import { BunSqliteProfile, type ProviderProfile } from "../../src/Provider.ts";

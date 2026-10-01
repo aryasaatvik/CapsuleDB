@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError";
-import type * as Statement from "effect/unstable/sql/Statement";
+import * as SqlClient from "effect/sql/SqlClient";
+import { isSqlError, type SqlError } from "effect/sql/SqlError";
+import type * as Statement from "effect/sql/Statement";
 
 import { sha256 } from "../../src/internal/checksum.ts";
 
@@ -10,7 +10,7 @@ const AUDIT_TABLE = "capsule_reference_2e_token_audit";
 
 /** Opaque token value returned by the reference capsule. */
 export const Token = Schema.String.pipe(
-  Schema.check(Schema.isLengthBetween(64, 64), Schema.isPattern(/^[0-9a-f]{64}$/)),
+  Schema.check(Schema.isBetweenLength(64, 64), Schema.isPattern(/^[0-9a-f]{64}$/)),
   Schema.brand("OneTimeToken"),
 );
 

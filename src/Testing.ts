@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import * as Layer from "effect/Layer";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import * as SqlClient from "effect/sql/SqlClient";
+import type { SqlError } from "effect/sql/SqlError";
 
 import type { Capsule } from "./Capsule.ts";
 import type { Dialect } from "./Dialect.ts";

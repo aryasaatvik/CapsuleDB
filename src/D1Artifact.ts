@@ -29,7 +29,7 @@ export const D1ArtifactFile = Schema.Struct({
   migrationId: Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))),
   name: Schema.String,
   checksum: Schema.String.pipe(
-    Schema.check(Schema.isLengthBetween(64, 64), Schema.isPattern(/^[0-9a-f]{64}$/)),
+    Schema.check(Schema.isBetweenLength(64, 64), Schema.isPattern(/^[0-9a-f]{64}$/)),
   ),
   source: Schema.String,
   statements: Schema.Array(Schema.String),
@@ -41,7 +41,7 @@ export type D1ArtifactFile = typeof D1ArtifactFile.Type;
 export const D1Artifact = Schema.Struct({
   version: Schema.Literal(1),
   manifestFingerprint: Schema.String.pipe(
-    Schema.check(Schema.isLengthBetween(64, 64), Schema.isPattern(/^[0-9a-f]{64}$/)),
+    Schema.check(Schema.isBetweenLength(64, 64), Schema.isPattern(/^[0-9a-f]{64}$/)),
   ),
   files: Schema.Array(D1ArtifactFile),
 });

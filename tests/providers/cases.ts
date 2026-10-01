@@ -1,7 +1,7 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { LibsqlClient } from "@effect/sql-libsql";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { createClient, type Client } from "@libsql/client";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

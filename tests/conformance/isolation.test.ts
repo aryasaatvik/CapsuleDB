@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Context, Effect, Layer } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import * as SqlClient from "effect/sql/SqlClient";
+import type { SqlError } from "effect/sql/SqlError";
 
 import * as Capsule from "../../src/Capsule.ts";
 import * as Migration from "../../src/Migration.ts";

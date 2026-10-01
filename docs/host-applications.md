@@ -12,7 +12,7 @@ so startup does not discover packages or infer migrations:
 
 ```ts
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { Pg, Registry } from "capsuledb";
 import { capsule } from "./capsule.js";

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import type * as Layer from "effect/Layer";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 import { CapsuleDefinitionError } from "./Error.ts";
 import { createdTables, type Migration } from "./Migration.ts";

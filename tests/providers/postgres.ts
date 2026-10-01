@@ -1,9 +1,9 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { PgClient } from "@effect/sql-pg";
 import { Effect, Redacted } from "effect";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-import * as Reactivity from "effect/unstable/reactivity/Reactivity";
+import type * as SqlClient from "effect/sql/SqlClient";
+import type { SqlError } from "effect/sql/SqlError";
+import * as Reactivity from "effect/reactivity/Reactivity";
 
 /**
  * Run a PostgreSQL assertion against one disposable local container and one

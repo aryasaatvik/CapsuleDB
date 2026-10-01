@@ -2,7 +2,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { D1Client } from "@effect/sql-d1";
 import { assert, describe, it } from "@effect/vitest";
 import { Context, Effect, Layer, Schema } from "effect";
-import { isSqlError } from "effect/unstable/sql/SqlError";
+import { isSqlError } from "effect/sql/SqlError";
 import { Miniflare } from "miniflare";
 
 import limits from "./d1-limits.json" with { type: "json" };

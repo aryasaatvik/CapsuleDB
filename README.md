@@ -8,6 +8,17 @@ The host supplies the Effect SQL client and owns its connection lifecycle.
 CapsuleDB keeps the capsule's physical schema and persistence implementation
 private, while exposing explicit preparation and domain-oriented services.
 
+## Compatibility
+
+CapsuleDB requires stable Effect 4 (`>=4.0.0 <5`) and stable Effect SQL drivers.
+SQL imports use `effect/sql/*`; CLI imports use `effect/cli`.
+
+The optional `capsuledb/alchemy` entrypoint remains exported, but
+`alchemy@2.0.0-beta.79` still loads `effect/unstable/http/FetchHttpClient` from its
+stack module. That upstream path is absent in stable Effect 4, so the Alchemy
+integration cannot run until Alchemy supports the stable module paths. The
+package root and SQL providers do not import Alchemy.
+
 ## Quickstart
 
 A capsule author declares its tables once and exports a `Capsule` constant:

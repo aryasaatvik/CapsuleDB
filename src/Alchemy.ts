@@ -15,7 +15,7 @@ import { isResolved } from "alchemy/Diff";
 import * as Provider from "alchemy/Provider";
 import { Resource } from "alchemy/Resource";
 import { Effect, Layer, Redacted } from "effect";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 import type { Manifest } from "./Manifest.ts";
 import { PostgresProfile, providerName, type ProviderProfile } from "./Provider.ts";

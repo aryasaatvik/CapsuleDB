@@ -21,7 +21,7 @@ import { sha256 } from "./internal/checksum.ts";
 
 /** A lowercase SHA-256 checksum of canonical authored migration metadata. */
 export const Checksum = Schema.String.pipe(
-  Schema.check(Schema.isLengthBetween(64, 64), Schema.isPattern(/^[0-9a-f]{64}$/)),
+  Schema.check(Schema.isBetweenLength(64, 64), Schema.isPattern(/^[0-9a-f]{64}$/)),
   Schema.brand("Checksum"),
 );
 
