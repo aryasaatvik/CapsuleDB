@@ -13,11 +13,9 @@ private, while exposing explicit preparation and domain-oriented services.
 CapsuleDB requires stable Effect 4 (`>=4.0.0 <5`) and stable Effect SQL drivers.
 SQL imports use `effect/sql/*`; CLI imports use `effect/cli`.
 
-The optional `capsuledb/alchemy` entrypoint remains exported, but
-`alchemy@2.0.0-beta.79` still loads `effect/unstable/http/FetchHttpClient` from its
-stack module. That upstream path is absent in stable Effect 4, so the Alchemy
-integration cannot run until Alchemy supports the stable module paths. The
-package root and SQL providers do not import Alchemy.
+The optional `capsuledb/alchemy` entrypoint requires Alchemy
+`>=2.0.0-beta.80 <3` and `@effect/sql-pg` for deploy-time PostgreSQL registry
+preparation. The package root and SQL providers do not import Alchemy.
 
 ## Quickstart
 
