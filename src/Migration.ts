@@ -1,6 +1,6 @@
 import type * as Effect from "effect/Effect";
 import { Schema as EffectSchema } from "effect";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 import { type Dialect, dialects, render, supports } from "./Dialect.ts";
 import { CapsuleDefinitionError } from "./Error.ts";

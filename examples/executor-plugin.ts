@@ -4,7 +4,7 @@
  * repository makes no claim that Executor has adopted CapsuleDB.
  */
 import type { Layer } from "effect";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 import { Capsule, Pg, Registry } from "capsuledb";
 

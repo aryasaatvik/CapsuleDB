@@ -1,6 +1,6 @@
 import { assert, vi } from "@effect/vitest";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { providerName } from "../../src/Provider.ts";
 import * as Registry from "../../src/Registry.ts";

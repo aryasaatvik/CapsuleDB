@@ -2,7 +2,7 @@ import { createClient, type Client } from "@libsql/client";
 import { LibsqlClient } from "@effect/sql-libsql";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -5,7 +5,7 @@
  */
 import type { EffectPgDatabase } from "drizzle-orm/effect-postgres";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { Capsule, Pg, Readiness, Registry } from "capsuledb";
 

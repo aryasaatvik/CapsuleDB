@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { expect, test } from "tstyche";
 
 import { profile as d1Profile } from "../../src/D1.ts";

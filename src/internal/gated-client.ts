@@ -1,8 +1,8 @@
 import { Context, Effect, Predicate, Semaphore, Stream } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import type { Acquirer, Borrower } from "effect/unstable/sql/SqlConnection";
-import { SqlError, UnknownError } from "effect/unstable/sql/SqlError";
-import * as Statement from "effect/unstable/sql/Statement";
+import * as SqlClient from "effect/sql/SqlClient";
+import type { Acquirer, Borrower } from "effect/sql/SqlConnection";
+import { SqlError, UnknownError } from "effect/sql/SqlError";
+import * as Statement from "effect/sql/Statement";
 
 /**
  * The pieces a host client builds its statements from.

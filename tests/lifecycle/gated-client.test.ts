@@ -1,8 +1,8 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Stream } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import * as SqlClient from "effect/sql/SqlClient";
+import type { SqlError } from "effect/sql/SqlError";
 
 import * as GatedClient from "../../src/internal/gated-client.ts";
 
