@@ -65,7 +65,13 @@ const paper = tegami({
         branch: "tegami/version-packages",
         forceCreate: false,
         create() {
-          return { title: "chore(release): prepare CapsuleDB" };
+          const version = this.graph.get(PACKAGE_ID)?.version;
+          return {
+            title:
+              version === undefined
+                ? "chore(release): prepare CapsuleDB"
+                : `chore(release): capsuledb ${version}`,
+          };
         },
       },
     }),
