@@ -1,8 +1,8 @@
 {
   "runtime": {
-    "effectSqlD1": "4.0.0-rc.112",
-    "miniflare": "3.20250718.3",
-    "workerd": "1.20250718.0"
+    "effectSqlD1": "4.0.2",
+    "miniflare": "4.20260730.0",
+    "workerd": "1.20260730.1"
   },
   "constraints": {
     "maxSqlStatementBytes": 100000,

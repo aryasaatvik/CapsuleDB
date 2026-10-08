@@ -23,6 +23,7 @@ class TestD1Runtime extends Context.Service<TestD1Runtime, Miniflare>()(
       Effect.sync(
         () =>
           new Miniflare({
+            compatibilityDate: "2026-07-30",
             d1Databases: { DB: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" },
             modules: true,
             script: "",
