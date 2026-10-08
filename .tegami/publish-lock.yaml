@@ -1,10 +1,10 @@
 core:changelogs:
-  - content: "---\npackages:\n  capsuledb:\n    type: minor\n---\n\n### Stable Effect 4\n\n**Breaking:** CapsuleDB now requires stable Effect 4 (`>=4.0.0 <5`) and stable Effect SQL\ndrivers with the same version range. Update your application's Effect and SQL\ndriver dependencies together before upgrading; Effect 4 release candidates are\nno longer supported. SQL imports use `effect/sql/*` and CLI imports use\n`effect/cli`.\n\nThe optional `capsuledb/alchemy` integration now requires Alchemy\n`>=2.0.0-beta.80 <3` and `@effect/sql-pg` `>=4.0.0 <5`. Alchemy beta80 supports\nstable Effect module paths, so deploy-time PostgreSQL registry preparation works\nwith the stable dependencies. CapsuleDB's public entrypoints remain available.\n"
-    filename: stable-effect-v4.md
+  - content: "---\npackages:\n  capsuledb:\n    type: patch\n---\n\n### Dependency refresh\n\nCapsuleDB 0.5.1 is verified against Effect 4.0.2 and the Effect SQL 4.0.2 drivers,\nAlchemy 2.0.0-beta.81, @libsql/client 0.18, and current Cloudflare D1 tooling.\nThere are no API changes, and peer dependency ranges are unchanged.\n"
+    filename: dependency-refresh.md
     v: 0.0.0
 core:packages:
   - changelogIds:
-      - stable-effect-v4.md
+      - dependency-refresh.md
     id: npm:capsuledb
     updated: true
 npm:packages:
