@@ -292,7 +292,7 @@ describe("packed release candidate consumers", () => {
         modules: true,
         scriptPath: join(workerDirectory, "worker.mjs"),
         modulesRoot: workerDirectory,
-        compatibilityDate: "2026-01-01",
+        compatibilityDate: "2026-07-30",
       });
       try {
         const response = await miniflare.dispatchFetch("http://localhost/");

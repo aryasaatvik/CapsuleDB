@@ -122,7 +122,7 @@
     "tegami": "bun scripts/tegami.mts"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260822.1",
+    "@cloudflare/workers-types": "5.20261008.1",
     "@effect/sql-d1": "4.0.2",
     "@effect/sql-libsql": "4.0.2",
     "@effect/sql-pg": "4.0.2",
@@ -134,7 +134,7 @@
     "alchemy": "2.0.0-beta.81",
     "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "effect": "4.0.2",
-    "miniflare": "3.20250718.3",
+    "miniflare": "4.20260730.0",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
     "tegami": "1.5.0",

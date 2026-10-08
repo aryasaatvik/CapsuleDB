@@ -16,6 +16,7 @@ export const withD1 = <A, E>(
     Effect.sync(
       () =>
         new Miniflare({
+          compatibilityDate: "2026-07-30",
           d1Databases: { DB: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" },
           modules: true,
           script: "",
