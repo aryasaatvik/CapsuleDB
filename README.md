@@ -119,15 +119,16 @@ and may change directly until a stable release is declared.
 
 ## Development
 
-Use Bun 1.4 and Node.js 24.10 or newer:
+Use the Bun version pinned in `packageManager` and Node.js 24.10 or newer.
+The normal tests use local databases, including disposable PostgreSQL containers;
+start Docker and cache `postgres:16-alpine` before running offline:
 
 ```sh
 bun install --frozen-lockfile
-bun run lint
-bun run format:check
-bun run typecheck
-bun run test
+bun run check
 bun run build
+bun run test:artifact
+bun run release:check
 ```
 
 Documentation and example checks are also available:
