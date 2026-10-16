@@ -6,16 +6,24 @@ forward-only migration history.
 
 ## Development
 
-Use Bun 1.4 and Node.js 24.10 or newer:
+Use the Bun version pinned in `packageManager` and Node.js 24.10 or newer.
+The normal tests use local databases, including disposable PostgreSQL containers;
+start Docker and cache `postgres:16-alpine` before running offline:
 
 ```sh
 bun install --frozen-lockfile
-bun run lint
-bun run format:check
-bun run typecheck
-bun run test
+bun run check
 bun run build
+bun run test:artifact
+bun run release:check
 ```
+
+`check` runs formatting, lint, source and automation types, the local release-gate
+proof, and normal unit/provider/lifecycle tests. `test:artifact` builds and tests
+installed packed Node/Bun CLI and Worker consumers; it installs Effect from npm
+using temporary configuration and cache. `release:check` also validates metadata,
+public types, docs, and built examples. `test:providers` selects provider suites;
+`test:types`, `docs:check`, and `typecheck:examples` are focused gates.
 
 Add focused tests for observable behavior and document exported contracts.
 Public API changes should include the relevant type and packed-artifact proof.

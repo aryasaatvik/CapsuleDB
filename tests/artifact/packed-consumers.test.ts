@@ -63,7 +63,11 @@ export default {
 };
 `;
 
-const installConsumer = async (directory: string, tarball: string): Promise<void> => {
+const installConsumer = async (
+  directory: string,
+  tarball: string,
+  env: NodeJS.ProcessEnv,
+): Promise<void> => {
   await writeFile(
     join(directory, "package.json"),
     JSON.stringify({
@@ -76,6 +80,7 @@ const installConsumer = async (directory: string, tarball: string): Promise<void
   await execFileAsync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarball], {
     cwd: directory,
     encoding: "utf8",
+    env,
   });
 };
 
@@ -219,11 +224,19 @@ const runConsumer = async (runtime: "node" | "bun", directory: string): Promise<
 describe("packed release candidate consumers", () => {
   it("runs the manifest, CLI, service, and export tracer in fresh Node, Bun, and Worker consumers", async () => {
     const directory = await mkdtemp(join(tmpdir(), "capsuledb-release-candidate-"));
+    const npmEnv = {
+      ...process.env,
+      NPM_CONFIG_USERCONFIG: join(directory, ".npmrc"),
+      NPM_CONFIG_GLOBALCONFIG: join(directory, "global.npmrc"),
+      NPM_CONFIG_CACHE: join(directory, "npm-cache"),
+    };
+    await writeFile(npmEnv.NPM_CONFIG_USERCONFIG, "");
+    await writeFile(npmEnv.NPM_CONFIG_GLOBALCONFIG, "");
     try {
       const { stdout } = await execFileAsync(
         "npm",
         ["pack", "--json", "--pack-destination", directory],
-        { cwd: process.cwd(), encoding: "utf8" },
+        { cwd: process.cwd(), encoding: "utf8", env: npmEnv },
       );
       const packed = JSON.parse(stdout) as ReadonlyArray<{
         filename?: string;
@@ -266,9 +279,9 @@ describe("packed release candidate consumers", () => {
         mkdir(bunDirectory, { recursive: true }),
         mkdir(workerDirectory, { recursive: true }),
       ]);
-      await installConsumer(nodeDirectory, tarball);
-      await installConsumer(bunDirectory, tarball);
-      await installConsumer(workerDirectory, tarball);
+      await installConsumer(nodeDirectory, tarball, npmEnv);
+      await installConsumer(bunDirectory, tarball, npmEnv);
+      await installConsumer(workerDirectory, tarball, npmEnv);
 
       await writeFile(join(nodeDirectory, "capsule.mjs"), fixtureModule);
       await writeFile(join(nodeDirectory, "consumer.mjs"), consumerModule);

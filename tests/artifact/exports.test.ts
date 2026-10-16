@@ -12,11 +12,19 @@ const execFileAsync = promisify(execFile);
 describe("packed exports", () => {
   it("resolves only the declared public package entrypoint", async () => {
     const directory = await mkdtemp(join(tmpdir(), "capsuledb-packed-"));
+    const npmEnv = {
+      ...process.env,
+      NPM_CONFIG_USERCONFIG: join(directory, ".npmrc"),
+      NPM_CONFIG_GLOBALCONFIG: join(directory, "global.npmrc"),
+      NPM_CONFIG_CACHE: join(directory, "npm-cache"),
+    };
+    await writeFile(npmEnv.NPM_CONFIG_USERCONFIG, "");
+    await writeFile(npmEnv.NPM_CONFIG_GLOBALCONFIG, "");
     try {
       const { stdout } = await execFileAsync(
         "npm",
         ["pack", "--json", "--pack-destination", directory],
-        { cwd: process.cwd(), encoding: "utf8" },
+        { cwd: process.cwd(), encoding: "utf8", env: npmEnv },
       );
       const packed = JSON.parse(stdout) as ReadonlyArray<{ filename?: string }>;
       const filename = packed[0]?.filename;
@@ -34,7 +42,7 @@ describe("packed exports", () => {
       await execFileAsync(
         "npm",
         ["install", "--ignore-scripts", "--no-audit", "--no-fund", join(directory, filename)],
-        { cwd: directory, encoding: "utf8" },
+        { cwd: directory, encoding: "utf8", env: npmEnv },
       );
       await writeFile(
         join(directory, "consumer.mjs"),
