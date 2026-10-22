@@ -8,6 +8,10 @@ The host supplies the Effect SQL client and owns its connection lifecycle.
 CapsuleDB keeps the capsule's physical schema and persistence implementation
 private, while exposing explicit preparation and domain-oriented services.
 
+[![CapsuleDB launch film poster: ship persistence with your package, use the database the app already owns](media/exports/capsuledb-launch-poster.jpg)](media/exports/capsuledb-launch.mp4)
+
+Watch the [60-second film](media/exports/capsuledb-launch.mp4) (silent; [transcript](media/launches/introducing-capsuledb/TRANSCRIPT.md)).
+
 ## Compatibility
 
 CapsuleDB requires stable Effect 4 (`>=4.0.0 <5`) and stable Effect SQL drivers.
@@ -49,6 +53,8 @@ export const capsule = Capsule.make({
 });
 ```
 
+![Capsule anatomy: the reference capsule's tables, append-only migrations, and typed OneTimeTokens service, with its derived namespace](media/exports/capsule-anatomy.png)
+
 CapsuleDB renders that declaration for PostgreSQL and SQLite (Bun SQLite,
 libSQL, and D1). The host imports the value, chooses a provider profile, and
 composes one Layer:
@@ -60,12 +66,16 @@ import { capsule } from "./capsule.js";
 export const CapsulesLive = Registry.layer({ provider: Pg.profile, capsules: [capsule] });
 ```
 
+![Host composition: several capsules and the host's own persistence share one host-owned SqlClient and database, alongside CapsuleDB's ledger tables](media/exports/shared-database.png)
+
 `Registry.layer` creates or checks CapsuleDB's ledger and metadata, applies
 pending migrations, and then provides every registered capsule's service. A
 registry that is already current answers in one read. It does not open or close
 the host client: the layer still requires the host's `SqlClient`. See the [capsule-author guide](docs/capsule-authors.md),
 [host guide](docs/host-applications.md), and [migration runbook](docs/migrations-and-recovery.md)
 for the complete contract.
+
+![Preparation and readiness: Registry.layer reads the ledger, applies pending migrations, and reaches Ready before providing services](media/exports/preparation-readiness.png)
 
 A host that already owns a migration pipeline can take the SQL instead and
 replace boot-time preparation with a readiness assertion:
