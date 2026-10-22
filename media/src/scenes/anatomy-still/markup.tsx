@@ -145,7 +145,7 @@ export const anatomyStill: SceneMarkup = {
           <span className="cx-mono" style={{ display: "block", fontSize: 24 }}>
             capsule_reference_2e_tokens
           </span>
-          Derived from the ID. Hosts cannot rename it.
+          Derived; hosts cannot rename it.
         </Fact>
         <Fact title="Dialects">
           Declared once. Rendered for PostgreSQL and SQLite: Bun SQLite, libSQL, and D1.

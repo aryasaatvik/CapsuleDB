@@ -197,8 +197,8 @@ export const readinessStill: SceneMarkup = {
             Checks while the layer builds.
           </Option>
           <Option name={'"first-use"'}>
-            Builds without a statement; a capsule's first query runs the check. After a failure, the
-            next use checks again.
+            Builds without a statement; a capsule's first query checks. After a failure, the next
+            use checks again.
           </Option>
         </Card>
       </div>
