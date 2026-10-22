@@ -121,15 +121,16 @@ Registry.layer({
 });
 ```
 
-`readiness: "first-use"` builds the layer without a statement. Capsules receive
-the host client wrapped so their first connection, reservation, or transaction
-runs the `mode` check once; concurrent first uses share it and a success is kept
-for the layer's lifetime. A failure reaches the capsule's query as a `SqlError`
-whose cause is the registry error (`NotReady` here), and the next use checks
-again, so a deploy that finishes preparing heals running instances without a
-restart. The check runs outside any transaction the caller has open. Composition
-errors, such as a duplicate capsule, still fail the build. Tests and local
-development can keep `mode: "prepare"` with either readiness.
+`readiness: "first-use"` builds the layer without a statement of its own.
+Capsules receive the host client wrapped so their first connection, reservation,
+or transaction runs the `mode` check once, even when that use comes from a
+capsule layer that queries while it builds; concurrent first uses share it and a
+success is kept for the layer's lifetime. A failure reaches the capsule's query
+as a `SqlError` whose cause is the registry error (`NotReady` here), and the
+next use checks again, so a deploy that finishes preparing heals running
+instances without a restart. The check runs outside any transaction the caller
+has open. Composition errors, such as a duplicate capsule, still fail the build.
+Tests and local development can keep `mode: "prepare"` with either readiness.
 
 ## Destructive authorization
 

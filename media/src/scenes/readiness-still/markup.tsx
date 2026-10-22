@@ -178,9 +178,10 @@ export const readinessStill: SceneMarkup = {
             <Badge tone="seal">Drift</Badge>
           </div>
           <div style={{ fontSize: 23, lineHeight: 1.35, color: "var(--cx-soft)" }}>
-            One union from <span className="cx-mono">status</span>,{" "}
-            <span className="cx-mono">prepare</span>, and <span className="cx-mono">assert</span>.
-            Drift needs an operator; preparation will not repair it.
+            <span className="cx-mono">status</span> reports any of the three.{" "}
+            <span className="cx-mono">prepare</span> and <span className="cx-mono">assert</span>{" "}
+            return Ready or fail with a typed error. Drift needs an operator; preparation will not
+            repair it.
           </div>
         </Card>
         <Card title="mode:" option>
@@ -197,8 +198,8 @@ export const readinessStill: SceneMarkup = {
             Checks while the layer builds.
           </Option>
           <Option name={'"first-use"'}>
-            Builds without a statement; a capsule's first query checks. After a failure, the next
-            use checks again.
+            Defers the check to the first use of the client, which can come while capsule services
+            build. After a failure, the next use checks again.
           </Option>
         </Card>
       </div>

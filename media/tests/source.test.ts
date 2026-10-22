@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { repository } from "../scripts/projects";
+import { visibleStrings } from "../scripts/strings";
 import {
   capsuleDefinition,
   deferredReadiness,
@@ -66,6 +67,38 @@ describe("on-screen code matches the repository", () => {
       const module = profile.replace(/\.profile$/, "");
       expect(read(`src/${module}.ts`)).toMatch(/^export const profile\b/m);
     }
+  });
+
+  test("readiness states and results match Registry and Readiness", () => {
+    const union = read("src/Readiness.ts").match(
+      /export const Readiness = Schema\.TaggedUnion\(\{([\s\S]*?)\n\}\);/,
+    )?.[1];
+    const tags = [...(union ?? "").matchAll(/^ {2}(\w+): \{/gm)].flatMap(([, tag]) => tag ?? []);
+    expect(tags.toSorted()).toEqual(["Drift", "Pending", "Ready"]);
+    const still = visibleStrings().get("readiness-still") ?? [];
+    for (const tag of tags) expect(still).toContain(tag);
+
+    // `status` reports every state; `prepare` and `assert` succeed only with `Ready`.
+    const registry = read("src/Registry.ts");
+    const signature = (name: string) =>
+      registry.match(
+        new RegExp(`export const ${name} = \\(\\s*options: [^)]*\\): Effect\\.Effect<(\\w+),`),
+      )?.[1];
+    expect(signature("status")).toBe("Readiness");
+    expect(signature("prepare")).toBe("Ready");
+    expect(signature("assert")).toBe("Ready");
+    expect(registry).toContain('if (readiness._tag === "Ready") return readiness;');
+  });
+
+  test("first-use gates the client the capsule layers build with", () => {
+    // The gated client is provided to the merged service layers, so a layer that queries while it
+    // builds runs the check then; only success is remembered, so a failure is retried.
+    expect(read("src/Registry.ts")).toMatch(
+      /options\.readiness === "first-use"\s*\?\s*merged\.pipe\(\s*Layer\.provide\([\s\S]*?GatedClient\.make\(/,
+    );
+    expect(read("src/internal/gated-client.ts")).toMatch(
+      /outsideTransaction\.pipe\(\s*Effect\.mapError\(asSqlError\),\s*Effect\.map\(\(\) => \{\s*ready = true;/,
+    );
   });
 
   test("the reference namespace is the ID's derivation", () => {

@@ -52,7 +52,7 @@ All use the film's scene system and render compositor, exported losslessly from 
 | ----------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `capsule-anatomy.png`         | 1920×1080 | The reference capsule's tables, migrations, and service; its derived identity; dialects; the service boundary.                 |
 | `shared-database.png`         | 1920×1080 | Three example capsules and the host's own persistence share one host `SqlClient` and database, with CapsuleDB's ledger tables. |
-| `preparation-readiness.png`   | 1920×1080 | `Registry.layer`'s preparation path and fast path, the readiness union, and the `mode` and `readiness` options.                |
+| `preparation-readiness.png`   | 1920×1080 | `Registry.layer`'s preparation path and fast path, the states `status` reports, and the `mode` and `readiness` options.        |
 | `og.png`                      | 1200×630  | Mark, wordmark, **Ship persistence with your package.**, install line, repository.                                             |
 | `github-social-preview.png`   | 1280×640  | The same card at GitHub's social preview size.                                                                                 |
 | `capsuledb-launch-poster.jpg` | 1920×1080 | The settled reveal at 10.6 seconds, extracted from the rendered film.                                                          |
