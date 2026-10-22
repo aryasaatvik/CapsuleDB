@@ -65,5 +65,9 @@ Judge the film from frames extracted from the MP4 (`bun run frames` writes them 
 `.build/review/`), not from browser snapshots, which composite differently. Set
 `HYPERFRAMES_NO_TELEMETRY=1` when calling `hyperframes` directly; the scripts already do.
 
+CI installs this directory from its lockfile and runs `typecheck` and `test` on every pull request,
+so a quoted excerpt that drifts from the repository fails there. It does not build or render;
+regenerate `exports/` locally when the film or stills change.
+
 After changing media, run the root `bun run format:check` (it covers this directory) and
 `git diff --check`.
