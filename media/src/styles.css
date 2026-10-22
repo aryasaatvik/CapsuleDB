@@ -1,0 +1,429 @@
+/*
+ * CapsuleDB launch identity: ledger paper, ink, and one vermilion seal for package-owned things.
+ * Ready and pending are the only other colors. Fonts are bundled from Fontsource at build time.
+ * Motion never lives here: the build rejects transitions and animations.
+ */
+
+@font-face {
+  font-family: "Archivo";
+  src: url(fonts/archivo.woff2) format("woff2-variations");
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url(fonts/jetbrains-mono.woff2) format("woff2-variations");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  --cx-paper: #f1eee6;
+  --cx-panel: #faf8f3;
+  --cx-ink: #141619;
+  --cx-soft: #52575b;
+  --cx-faint: #8a8d8a;
+  --cx-rule: #d6d0c2;
+  --cx-seal: #e2502b;
+  --cx-seal-deep: #a3341a;
+  --cx-seal-wash: #f6dccf;
+  --cx-ready: #1f7347;
+  --cx-ready-wash: #d9eadc;
+  --cx-pending: #a86a12;
+  --cx-pending-wash: #f2e3c4;
+  --cx-code: #15171b;
+  --cx-code-ink: #ebe7de;
+  --cx-code-dim: #8c929a;
+  --cx-code-str: #f3a383;
+  --cx-code-num: #e7c46c;
+  --cx-code-key: #a9c9d9;
+  --cx-code-hi: #2a2420;
+  --cx-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --cx-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--cx-paper);
+  color: var(--cx-ink);
+  font-family: var(--cx-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Frame ------------------------------------------------------------------------------------ */
+
+.cx-scene {
+  position: relative;
+  overflow: hidden;
+  background: var(--cx-paper);
+  color: var(--cx-ink);
+  font-family: var(--cx-sans);
+}
+
+.cx-scene * {
+  box-sizing: border-box;
+}
+
+/* Faint ledger ruling: the paper the whole identity is printed on. */
+.cx-ruling {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 53px,
+    rgba(20, 22, 25, 0.045) 53px,
+    rgba(20, 22, 25, 0.045) 54px
+  );
+}
+
+.cx-abs {
+  position: absolute;
+}
+
+.cx-header {
+  position: absolute;
+  top: 44px;
+  left: 96px;
+  right: 96px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid var(--cx-ink);
+}
+
+.cx-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 28px;
+  font-weight: 700;
+  font-stretch: 110%;
+  letter-spacing: -0.01em;
+}
+
+.cx-brand b {
+  color: var(--cx-seal);
+  font-weight: 700;
+}
+
+.cx-kicker {
+  font-family: var(--cx-mono);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cx-soft);
+}
+
+.cx-kicker--seal {
+  color: var(--cx-seal-deep);
+}
+
+/* Type ------------------------------------------------------------------------------------- */
+
+.cx-h {
+  margin: 0;
+  font-family: var(--cx-sans);
+  font-weight: 760;
+  font-stretch: 112%;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  color: var(--cx-ink);
+}
+
+.cx-sub {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 450;
+  line-height: 1.35;
+  color: var(--cx-soft);
+  letter-spacing: -0.005em;
+}
+
+.cx-mask {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.18em;
+  margin-bottom: -0.18em;
+}
+
+.cx-mask > span {
+  display: block;
+}
+
+.cx-mono {
+  font-family: var(--cx-mono);
+}
+
+.cx-seal {
+  color: var(--cx-seal);
+}
+
+.cx-note {
+  font-family: var(--cx-mono);
+  font-size: 19px;
+  line-height: 1.5;
+  color: var(--cx-soft);
+}
+
+/* Code ------------------------------------------------------------------------------------- */
+
+.cx-code {
+  position: absolute;
+  background: var(--cx-code);
+  color: var(--cx-code-ink);
+  border-radius: 18px;
+  padding: 34px 0 34px 0;
+  font-family: var(--cx-mono);
+  font-weight: 450;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+}
+
+.cx-code-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 36px 22px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid rgba(235, 231, 222, 0.12);
+  font-size: 17px;
+  letter-spacing: 0.04em;
+  color: var(--cx-code-dim);
+}
+
+.cx-code-file i {
+  width: 12px;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--cx-seal);
+}
+
+.cx-code-line {
+  position: relative;
+  padding: 0 36px;
+  white-space: pre;
+}
+
+.cx-code-hi {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(226, 80, 43, 0.2);
+  border-left: 5px solid var(--cx-seal);
+  transform-origin: left center;
+}
+
+.tk-str {
+  color: var(--cx-code-str);
+}
+.tk-num {
+  color: var(--cx-code-num);
+}
+.tk-kw {
+  color: #d6a4c8;
+}
+.tk-key {
+  color: var(--cx-code-key);
+}
+.tk-com {
+  color: var(--cx-code-dim);
+  font-style: italic;
+}
+.tk-dim {
+  color: var(--cx-code-dim);
+}
+
+/* Capsule ---------------------------------------------------------------------------------- */
+
+.cx-capsule {
+  position: absolute;
+  display: flex;
+  border: 4px solid var(--cx-ink);
+  overflow: hidden;
+  background: var(--cx-panel);
+}
+
+.cx-cell {
+  position: relative;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  border-left: 3px solid var(--cx-ink);
+}
+
+.cx-cell:first-child {
+  border-left: 0;
+}
+
+.cx-cell-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--cx-seal-wash);
+  transform-origin: left center;
+}
+
+.cx-cell > :not(.cx-cell-fill) {
+  position: relative;
+}
+
+.cx-label {
+  font-family: var(--cx-mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* Pills, badges, and rules ----------------------------------------------------------------- */
+
+.cx-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 26px 0 20px;
+  border-radius: 28px;
+  border: 3px solid var(--cx-ink);
+  background: var(--cx-panel);
+  font-family: var(--cx-mono);
+  font-size: 22px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cx-pill i {
+  width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--cx-seal);
+  flex-shrink: 0;
+}
+
+.cx-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-family: var(--cx-mono);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.cx-badge i {
+  width: 12px;
+  height: 12px;
+  border-radius: 6px;
+  background: currentColor;
+}
+
+.cx-badge--ready {
+  color: var(--cx-ready);
+  background: var(--cx-ready-wash);
+}
+
+.cx-badge--pending {
+  color: var(--cx-pending);
+  background: var(--cx-pending-wash);
+}
+
+.cx-badge--seal {
+  color: var(--cx-seal-deep);
+  background: var(--cx-seal-wash);
+}
+
+.cx-badge--code {
+  color: var(--cx-code-ink);
+  background: rgba(235, 231, 222, 0.12);
+}
+
+.cx-badge--ink {
+  color: var(--cx-paper);
+  background: var(--cx-ink);
+}
+
+.cx-rule {
+  display: block;
+  height: 2px;
+  background: var(--cx-ink);
+  transform-origin: left center;
+}
+
+.cx-bar {
+  display: block;
+  height: 8px;
+  background: var(--cx-seal);
+  transform-origin: left center;
+}
+
+.cx-box {
+  position: absolute;
+  border: 3px solid var(--cx-ink);
+  border-radius: 20px;
+  background: var(--cx-panel);
+}
+
+.cx-box--dashed {
+  border-style: dashed;
+  background: transparent;
+}
+
+.cx-tag {
+  position: absolute;
+  top: -17px;
+  left: 28px;
+  padding: 0 12px;
+  background: var(--cx-paper);
+  font-family: var(--cx-mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.cx-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 50px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-family: var(--cx-mono);
+  font-size: 21px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.cx-row--host {
+  background: #e6e2d8;
+  color: var(--cx-soft);
+}
+
+.cx-row--capsule {
+  background: var(--cx-seal-wash);
+  color: var(--cx-ink);
+}
+
+.cx-row--ledger {
+  background: var(--cx-ink);
+  color: var(--cx-paper);
+}
+
+.cx-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
