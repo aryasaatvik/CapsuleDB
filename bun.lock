@@ -6,17 +6,17 @@
       "name": "capsuledb",
       "devDependencies": {
         "@cloudflare/workers-types": "5.20261101.1",
-        "@effect/sql-d1": "4.0.2",
-        "@effect/sql-libsql": "4.0.2",
-        "@effect/sql-pg": "4.0.2",
-        "@effect/sql-sqlite-bun": "4.0.2",
-        "@effect/vitest": "4.0.2",
+        "@effect/sql-d1": "4.1.1",
+        "@effect/sql-libsql": "4.1.1",
+        "@effect/sql-pg": "4.1.1",
+        "@effect/sql-sqlite-bun": "4.1.1",
+        "@effect/vitest": "4.1.1",
         "@libsql/client": "0.18.0",
         "@testcontainers/postgresql": "12.2.1",
         "@types/bun": "1.4.4",
         "alchemy": "2.0.0-beta.81",
         "drizzle-orm": "1.0.0-rc.5-5935859",
-        "effect": "4.0.2",
+        "effect": "4.1.1",
         "miniflare": "4.20260730.0",
         "oxfmt": "0.75.0",
         "oxlint": "1.90.0",
@@ -31,7 +31,7 @@
         "@effect/sql-pg": ">=4.0.0 <5",
         "@effect/sql-sqlite-bun": ">=4.0.0 <5",
         "alchemy": ">=2.0.0-beta.80 <3",
-        "effect": ">=4.0.0 <5",
+        "effect": ">=4.1.0 <5",
       },
       "optionalPeers": [
         "@effect/sql-libsql",
@@ -112,17 +112,17 @@
 
     "@distilled.cloud/zerossl": ["@distilled.cloud/zerossl@1.0.0-rc.13", "", { "dependencies": { "@distilled.cloud/core": "1.0.0-rc.13" }, "peerDependencies": { "effect": "^4.0.0" } }, "sha512-dnxhg39lZjpTdZbHCVYPoUC9E2r8eSHbqiYDhSq2EurVPJcc9YRXlxZR1bP1nniSp078XV8GA+aUECt/Z56aQg=="],
 
-    "@effect/sql-d1": ["@effect/sql-d1@4.0.2", "", { "dependencies": { "@cloudflare/workers-types": "^5.20261003.1" }, "peerDependencies": { "effect": "^4.0.2" } }, "sha512-OCcWNKcnPsXKigOuv8ZzdNEOmoWYEJw0TVbjMA5pMqHqjernSOAQfAK04kPkoG2snUvjSWYlNXsZM3cTOdhQeg=="],
+    "@effect/sql-d1": ["@effect/sql-d1@4.1.1", "", { "dependencies": { "@cloudflare/workers-types": "^5.20261016.1" }, "peerDependencies": { "effect": "^4.1.1" } }, "sha512-CQMOiw9bmj4ifsUA4KLwIgBJBMpPHaF3OYdXnA9oOxeEmD61+XDLkJUSA2mG7BWCIEZc7MquGxl3HuUVOeqtSA=="],
 
-    "@effect/sql-libsql": ["@effect/sql-libsql@4.0.2", "", { "dependencies": { "@libsql/client": "^0.18.0" }, "peerDependencies": { "effect": "^4.0.2" } }, "sha512-Ho+IyNpQaTR4rRRSO2PUodColAmsVUn1vgpqw4zIXux2C28TnjI6kyVHYHKp93ux63LWJqZslyN0jcSUxDiEMw=="],
+    "@effect/sql-libsql": ["@effect/sql-libsql@4.1.1", "", { "dependencies": { "@libsql/client": "^0.18.0" }, "peerDependencies": { "effect": "^4.1.1" } }, "sha512-P3O2fqaDw/BrISrnp4BK/dgXSw9dRqzhVScKiddJUNAUmF84cP3v7+ctiJAESjOlXXzusaebuNiK2lF7wIAWBQ=="],
 
-    "@effect/sql-pg": ["@effect/sql-pg@4.0.2", "", { "peerDependencies": { "effect": "^4.0.2" } }, "sha512-i2N5F0L5s1S8Nx2I8V7k+awBinP26b5xiiHL1zn5b6RALNnloiU7FK1yS4dAkmqG9B0EcOVxvJrIpoMWwrB4hw=="],
+    "@effect/sql-pg": ["@effect/sql-pg@4.1.1", "", { "peerDependencies": { "effect": "^4.1.1" } }, "sha512-NiCzHPTFyI85/fbRdGhQgSa3QpuvByqVv8QaENSBuCFavvuWemIdSbWpKPQXESXU3yYq6PUR0KHY8fFfmWrXlA=="],
 
-    "@effect/sql-sqlite-bun": ["@effect/sql-sqlite-bun@4.0.2", "", { "peerDependencies": { "effect": "^4.0.2" } }, "sha512-rFtow3oA3VeoEvhG+/AjM9w00TFOWkG0AB7iwGBg69SGEs2sr16ffBAHCzDXCogktqGIhrWxJ/61UTZM9r1Lrw=="],
+    "@effect/sql-sqlite-bun": ["@effect/sql-sqlite-bun@4.1.1", "", { "peerDependencies": { "effect": "^4.1.1" } }, "sha512-NkkE5GQbrzMpD83+hKhPihuqp2rYMdIlNOqSosjp/3S1+RQXuZQC8u5pwhwNKrz7U0unbdN27zU+6JOSRr/3Cw=="],
 
     "@effect/sql-sqlite-do": ["@effect/sql-sqlite-do@4.0.0", "", { "peerDependencies": { "effect": "^4.0.0" } }, "sha512-XkRZmQOPblzwjmAJ0RWSOiLlTsKkf1EigZsxUNuIuk4uZ/pnufSqvDpXubCwv8iyRTbOLFMmM+EyOEH5V5XqAw=="],
 
-    "@effect/vitest": ["@effect/vitest@4.0.2", "", { "peerDependencies": { "effect": "^4.0.2", "vitest": ">=5.0.0 <6.0.0" } }, "sha512-Zb72nu7iUy3rNdBp9J1Xu5oUQGwJ8cOYsUwmYgujj88aqyvASRDjOS01SjlcPViqf77csduetKdCJTVndMNfzw=="],
+    "@effect/vitest": ["@effect/vitest@4.1.1", "", { "peerDependencies": { "effect": "^4.1.1", "vitest": ">=5.0.0 <6.0.0" } }, "sha512-VkE9EUXE4G7mXMmV3X3Iu+6k3pZswWjOf7PB2qiaHMoFAZAPtHp+eUZo9oJM4Ip5z+ghQ9K0IDAQM2iG6+w5MA=="],
 
     "@electric-sql/pglite": ["@electric-sql/pglite@0.3.15", "", {}, "sha512-Cj++n1Mekf9ETfdc16TlDi+cDDQF0W7EcbyRHYOAeZdsAe8M/FJg18itDTSwyHfar2WIezawM9o0EKaRGVKygQ=="],
 
@@ -624,7 +624,7 @@
 
     "eastasianwidth": ["eastasianwidth@0.2.0", "", {}, "sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA=="],
 
-    "effect": ["effect@4.0.2", "", {}, "sha512-YeYnLqSFrL4+tCOXRrfNP03w8FILoF/wDl+ukraJAGzXrjcS383W7LAAvGBbLatEyktmLxRq+9xJinx7QzXW5A=="],
+    "effect": ["effect@4.1.1", "", {}, "sha512-XYu65BrcmNqu5i7PPvP4dqL+R5ma37zIsfuSPjcn78mog+6e5PkilNg7Xo+pBpjXJYlWEIpH4j91tMrfW05CMw=="],
 
     "emoji-regex": ["emoji-regex@8.0.0", "", {}, "sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A=="],
 
