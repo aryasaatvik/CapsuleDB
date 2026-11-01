@@ -23,9 +23,9 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "gsap": "3.15.0",
-    "hyperframes": "0.8.150",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
+    "hyperframes": "0.8.225",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "typescript": "7.0.2"
   }
 }
