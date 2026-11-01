@@ -128,33 +128,33 @@
     "typecheck:examples:built": "tsc --project tsconfig.examples.json"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20261008.1",
-    "@effect/sql-d1": "4.0.2",
-    "@effect/sql-libsql": "4.0.2",
-    "@effect/sql-pg": "4.0.2",
-    "@effect/sql-sqlite-bun": "4.0.2",
-    "@effect/vitest": "4.0.2",
+    "@cloudflare/workers-types": "5.20261101.1",
+    "@effect/sql-d1": "4.1.1",
+    "@effect/sql-libsql": "4.1.1",
+    "@effect/sql-pg": "4.1.1",
+    "@effect/sql-sqlite-bun": "4.1.1",
+    "@effect/vitest": "4.1.1",
     "@libsql/client": "0.18.0",
-    "@testcontainers/postgresql": "12.2.0",
-    "@types/bun": "1.4.2",
-    "alchemy": "2.0.0-beta.81",
-    "drizzle-orm": "1.0.0-rc.5-5935859",
-    "effect": "4.0.2",
+    "@testcontainers/postgresql": "12.2.1",
+    "@types/bun": "1.4.4",
+    "alchemy": "2.0.0-beta.84",
+    "drizzle-orm": "1.0.0-rc.5",
+    "effect": "4.1.1",
     "miniflare": "4.20260730.0",
-    "oxfmt": "0.72.0",
-    "oxlint": "1.87.0",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
     "tegami": "1.5.0",
-    "tsdown": "0.23.0",
+    "tsdown": "0.23.4",
     "tstyche": "7.2.5",
     "typescript": "7.0.2",
-    "vitest": "5.0.3"
+    "vitest": "5.0.5"
   },
   "peerDependencies": {
     "@effect/sql-libsql": ">=4.0.0 <5",
     "@effect/sql-pg": ">=4.0.0 <5",
     "@effect/sql-sqlite-bun": ">=4.0.0 <5",
     "alchemy": ">=2.0.0-beta.80 <3",
-    "effect": ">=4.0.0 <5"
+    "effect": ">=4.1.0 <5"
   },
   "peerDependenciesMeta": {
     "@effect/sql-libsql": {

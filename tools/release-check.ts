@@ -26,8 +26,8 @@ if (packageJson.author !== "Saatvik Arya") throw new Error("package author chang
 if (packageJson.bin?.capsuledb !== "./dist/cli.mjs") {
   throw new Error("capsuledb bin must point at the packed CLI");
 }
-if (packageJson.peerDependencies?.effect !== ">=4.0.0 <5") {
-  throw new Error("Effect peer range is not the verified v4 range");
+if (packageJson.peerDependencies?.effect !== ">=4.1.0 <5") {
+  throw new Error("Effect peer range is not the verified 4.1 range");
 }
 
 for (const file of requiredFiles) {
