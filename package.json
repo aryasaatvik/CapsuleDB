@@ -135,7 +135,7 @@
     "@effect/sql-sqlite-bun": "4.0.2",
     "@effect/vitest": "4.0.2",
     "@libsql/client": "0.18.0",
-    "@testcontainers/postgresql": "12.2.0",
+    "@testcontainers/postgresql": "12.2.1",
     "@types/bun": "1.4.4",
     "alchemy": "2.0.0-beta.81",
     "drizzle-orm": "1.0.0-rc.5-5935859",
@@ -144,10 +144,10 @@
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
     "tegami": "1.5.0",
-    "tsdown": "0.23.0",
+    "tsdown": "0.23.4",
     "tstyche": "7.2.5",
     "typescript": "7.0.2",
-    "vitest": "5.0.3"
+    "vitest": "5.0.5"
   },
   "peerDependencies": {
     "@effect/sql-libsql": ">=4.0.0 <5",
