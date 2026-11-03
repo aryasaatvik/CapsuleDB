@@ -1,10 +1,10 @@
 core:changelogs:
-  - content: "---\npackages:\n  capsuledb:\n    type: patch\n---\n\n### Dependency refresh\n\nCapsuleDB 0.5.1 is verified against Effect 4.0.2 and the Effect SQL 4.0.2 drivers,\nAlchemy 2.0.0-beta.81, @libsql/client 0.18, and current Cloudflare D1 tooling.\nThere are no API changes, and peer dependency ranges are unchanged.\n"
-    filename: dependency-refresh.md
+  - content: "---\npackages:\n  capsuledb:\n    type: minor\n---\n\n### Effect 4.1.2 and Alchemy beta.85\n\n**Breaking:** CapsuleDB now requires Effect `>=4.1.2 <5`; Effect 4.0 is no longer supported.\n\nChecksums use `Digest` from `effect/crypto`, with WebCrypto when the caller does not provide a Digest service. Existing canonical bytes and SHA-256 checksums are unchanged. Development and provider tests now use Effect SQL 4.1.2 and Alchemy 2.0.0-beta.85. Optional SQL and Alchemy peer ranges remain unchanged.\n"
+    filename: 2026-11-03-effect41-alchemy85.md
     v: 0.0.0
 core:packages:
   - changelogIds:
-      - dependency-refresh.md
+      - 2026-11-03-effect41-alchemy85.md
     id: npm:capsuledb
     updated: true
 npm:packages:
