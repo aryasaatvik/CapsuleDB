@@ -1,37 +1,26 @@
-import { Crypto, Effect, Option } from "effect";
+import { Cause, Effect, Option } from "effect";
+import { Digest } from "effect/crypto";
 
 import { InvalidDefinition } from "../Error.ts";
 
-const toHex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-
-const platformCrypto = Crypto.make({
-  randomBytes: (size) => {
-    const bytes = new Uint8Array(size);
-    globalThis.crypto.getRandomValues(bytes);
-    return bytes;
-  },
-  digest: (_algorithm, data) =>
-    Effect.promise(() =>
-      globalThis.crypto.subtle.digest("SHA-256", new Uint8Array(data).slice().buffer),
-    ).pipe(Effect.map((digest) => new Uint8Array(digest))),
-});
-
-/** Hash canonical bytes through Effect Crypto, with a host platform fallback. */
+/** Hash canonical bytes with Digest, or WebCrypto when the caller did not provide one. */
 export const sha256 = (source: string): Effect.Effect<string, InvalidDefinition> =>
   Effect.gen(function* () {
-    const crypto = yield* Effect.serviceOption(Crypto.Crypto).pipe(
-      Effect.map(Option.getOrElse(() => platformCrypto)),
-    );
-    return toHex(
-      yield* crypto.digest("SHA-256", new TextEncoder().encode(source)).pipe(
-        Effect.mapError(
-          (cause) =>
+    const provided = yield* Effect.serviceOption(Digest.Digest);
+    const digest = yield* Option.match(provided, {
+      onNone: () => Digest.Digest.pipe(Effect.provide(Digest.layerWebCrypto)),
+      onSome: (service) => Effect.succeed(service),
+    });
+    return yield* digest.digestHex(Digest.sha256, new TextEncoder().encode(source));
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.failCause(cause)
+        : Effect.fail(
             new InvalidDefinition({
               subject: "manifest checksum",
               reason: `SHA-256 is unavailable or failed: ${String(cause)}`,
             }),
-        ),
-      ),
-    );
-  });
+          ),
+    ),
+  );
