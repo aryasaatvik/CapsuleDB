@@ -1,6 +1,6 @@
 {
   "name": "capsuledb",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Effect-native private database capsules and migrations",
   "keywords": [
     "database",
@@ -129,17 +129,17 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261101.1",
-    "@effect/sql-d1": "4.1.1",
-    "@effect/sql-libsql": "4.1.1",
-    "@effect/sql-pg": "4.1.1",
-    "@effect/sql-sqlite-bun": "4.1.1",
-    "@effect/vitest": "4.1.1",
+    "@effect/sql-d1": "4.1.2",
+    "@effect/sql-libsql": "4.1.2",
+    "@effect/sql-pg": "4.1.2",
+    "@effect/sql-sqlite-bun": "4.1.2",
+    "@effect/vitest": "4.1.2",
     "@libsql/client": "0.18.0",
     "@testcontainers/postgresql": "12.2.1",
     "@types/bun": "1.4.4",
-    "alchemy": "2.0.0-beta.84",
+    "alchemy": "2.0.0-beta.85",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.1.1",
+    "effect": "4.1.2",
     "miniflare": "4.20260730.0",
     "oxfmt": "0.75.0",
     "oxlint": "1.90.0",
@@ -154,7 +154,7 @@
     "@effect/sql-pg": ">=4.0.0 <5",
     "@effect/sql-sqlite-bun": ">=4.0.0 <5",
     "alchemy": ">=2.0.0-beta.80 <3",
-    "effect": ">=4.1.0 <5"
+    "effect": ">=4.1.2 <5"
   },
   "peerDependenciesMeta": {
     "@effect/sql-libsql": {

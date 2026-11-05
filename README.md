@@ -14,7 +14,7 @@ Watch the [60-second film](media/exports/capsuledb-launch.mp4) (silent; [transcr
 
 ## Compatibility
 
-CapsuleDB requires Effect 4.1 (`>=4.1.0 <5`) and stable Effect SQL drivers.
+CapsuleDB requires Effect 4.1.2 or newer (`>=4.1.2 <5`) and stable Effect SQL drivers.
 SQL imports use `effect/sql/*`; CLI imports use `effect/cli`.
 
 The optional `capsuledb/alchemy` entrypoint requires Alchemy
