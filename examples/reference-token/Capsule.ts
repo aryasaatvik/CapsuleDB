@@ -28,6 +28,7 @@ const tokenAudit = Schema.table("capsule_reference_2e_token_audit", {
   indexes: [{ columns: ["consumed_at"] }],
 });
 
+// #region capsule
 export const capsule = Capsule.make({
   id: "reference.tokens",
   tables: [tokens, tokenAudit],
@@ -47,5 +48,6 @@ export const capsule = Capsule.make({
   ],
   layer: tokenLayer,
 });
+// #endregion
 
 export type { OneTimeTokens as ReferenceTokenService } from "./OneTimeTokens.ts";
