@@ -4,11 +4,13 @@
  * built package. A package declares a capsule with one private table and a
  * service; the host composes it over a Bun SQLite client it owns.
  */
+// #region imports
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { Context, Data, Effect, Layer } from "effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { Capsule, Migration, Registry, Schema, SqliteBun } from "capsuledb";
+// #endregion
 
 // #region table
 const visits = Schema.table("capsule_example_2e_visits", {
@@ -37,7 +39,7 @@ const visitsLayer = Layer.effect(
     record: (path: string) =>
       sql<{ readonly hits: number }>`INSERT INTO ${sql("capsule_example_2e_visits")} (path, hits)
         VALUES (${path}, 1)
-        ON CONFLICT (path) DO UPDATE SET hits = hits + 1
+        ON CONFLICT (path) DO UPDATE SET hits = ${sql("capsule_example_2e_visits")}.hits + 1
         RETURNING hits`.pipe(
         Effect.map((rows) => rows[0]?.hits ?? 0),
         Effect.mapError((cause) => new VisitsUnavailable({ cause })),
@@ -81,4 +83,8 @@ export const main = program.pipe(
   Effect.provide(CapsulesLive),
   Effect.provide(SqliteClient.layer({ filename: ":memory:" })),
 );
+
+if (import.meta.main) {
+  console.log(`/docs has ${await Effect.runPromise(main)} visits`);
+}
 // #endregion

@@ -24,6 +24,13 @@ which CI typechecks and runs against the built package.
 npm i capsuledb effect @effect/sql-sqlite-bun
 ```
 
+## Import
+
+Start a file, `visits.ts`. The package side imports CapsuleDB's builders; the host side imports the
+Bun SQLite client it owns.
+
+<Snippet file="examples/quick-start.ts" region="imports" />
+
 ## Declare the table
 
 The package declares its table once. CapsuleDB renders the DDL for whichever dialect the host runs.
@@ -60,7 +67,8 @@ applies the capsule's pending migration, and only then provides `Visits`.
 
 <Snippet file="examples/quick-start.ts" region="run" />
 
-`main` returns `2`, the second visit to `/docs`. The database now holds
+Run it with `bun visits.ts`. It prints `/docs has 2 visits`: `main` returns `2`, the second visit
+to `/docs`. The database now holds
 `capsule_example_2e_visits` beside `capsuledb_registry_ledger` and `capsuledb_registry_metadata`.
 Running it again against the same database reads the ledger once, finds it current, and applies
 nothing.
