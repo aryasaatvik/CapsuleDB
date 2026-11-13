@@ -23,6 +23,10 @@ export default defineConfig({
       { href: "https://www.npmjs.com/package/capsuledb", label: "npm" },
       { href: "/docs/changelog", label: "Changelog" },
       { href: "/sitemap.xml", label: "Sitemap" },
+      // More from Arya Labs
+      { href: "https://pagegraph.arya.sh", label: "PageGraph" },
+      { href: "https://domain-kit.dev", label: "DomainKit" },
+      { href: "https://aryalabs.ai", label: "Arya Labs" },
     ],
   },
   github: {
