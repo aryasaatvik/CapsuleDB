@@ -27,12 +27,15 @@ and licenses are in [`PROVENANCE.md`](PROVENANCE.md).
 
 - `src/scenes/<id>/markup.tsx` renders a scene once with `renderToStaticMarkup`. Its sibling
   `motion.ts` receives a paused GSAP timeline and the scene root; offsets start at the scene's own
-  zero, and `data-a` attributes name what moves. `parts.tsx` holds the shared primitives and
-  `source.ts` the on-screen code.
+  zero, and `data-a` attributes name what moves. `parts.tsx` holds the shared primitives (hairline
+  windows, `\dt`-style listings, monochrome code panes) and `source.ts` the on-screen code.
+- `src/styles.css` holds the tokens, shared with the site: ink on near-white, a grey ladder,
+  hairline rings, radii of 8px or less, and one seal accent for what a capsule owns. Status colors
+  appear only for real states.
 - `src/cuts.ts` places the seven beats in the 60-second film and lists every still with its
   canvas size. Cards are laid out at their own size, never scaled or letterboxed.
 - `scripts/build.ts` bundles the motion runtime, copies GSAP and the two fonts, and writes one
-  HyperFrames composition per shot. Composition and page backgrounds are both painted paper.
+  HyperFrames composition per shot. Composition and page backgrounds are both painted the canvas color.
 - `scripts/render.ts` renders the film. `scripts/stills.ts` renders each still through the same
   compositor as a lossless PNG sequence and keeps its settled frame, then extracts the poster from
   the finished film.

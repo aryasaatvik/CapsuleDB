@@ -1,5 +1,5 @@
 import type { SceneMarkup } from "../../scene";
-import { Kicker, Mark, Scene, Wordmark } from "../parts";
+import { Mark, Scene, Wordmark } from "../parts";
 
 /** Install line and repository, held to the last frame. */
 export const cta: SceneMarkup = {
@@ -10,49 +10,46 @@ export const cta: SceneMarkup = {
         className="cx-abs"
         style={{ left: 160, top: 250, display: "flex", alignItems: "center", gap: 40 }}
       >
-        <Mark height={124} a="mark" />
+        <Mark height={116} a="mark" />
         <span className="cx-mask">
           <span data-a="wordmark">
-            <Wordmark size={144} />
+            <Wordmark size={148} />
           </span>
         </span>
       </div>
       <div
         data-a="install"
-        className="cx-abs cx-mono"
+        className="cx-abs cx-mono cx-dark"
         style={{
           left: 160,
           top: 500,
-          height: 96,
+          height: 100,
           padding: "0 40px",
           display: "flex",
           alignItems: "center",
-          gap: 22,
-          borderRadius: 16,
-          background: "var(--cx-code)",
-          color: "var(--cx-code-ink)",
+          gap: 24,
           fontSize: 44,
-          fontWeight: 600,
+          fontWeight: 500,
         }}
       >
-        <span style={{ color: "var(--cx-seal)" }}>$</span>
-        bun add capsuledb
+        <span style={{ color: "var(--cx-dark-body)" }}>$</span>
+        npm i capsuledb effect
       </div>
       <p
         data-a="repo"
         className="cx-abs cx-mono"
-        style={{ left: 160, top: 652, margin: 0, fontSize: 38, fontWeight: 600 }}
+        style={{ left: 160, top: 656, margin: 0, fontSize: 38, fontWeight: 500 }}
       >
         github.com/aryasaatvik/CapsuleDB
       </p>
       <div
         data-a="footer"
         className="cx-abs"
-        style={{ left: 160, top: 860, display: "flex", gap: 48 }}
+        style={{ left: 160, top: 840, display: "flex", gap: 16 }}
       >
-        <Kicker>MIT license</Kicker>
-        <Kicker>Effect 4</Kicker>
-        <Kicker>Pre-1.0</Kicker>
+        <span className="cx-chip">MIT license</span>
+        <span className="cx-chip">Effect 4</span>
+        <span className="cx-chip">Pre-1.0</span>
       </div>
     </Scene>
   ),

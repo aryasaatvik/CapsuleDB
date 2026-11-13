@@ -136,10 +136,7 @@ export function exit(tl: Timeline, root: HTMLElement, at: number): void {
   // HyperFrames nests the composition inside its host element, so find the scene by class.
   const scene = root.querySelector<HTMLElement>(".cx-scene");
   if (scene === null) throw new Error(`scene ${root.dataset.compositionId} has no .cx-scene`);
-  const content = Array.from(scene.children).filter(
-    (element) => !element.classList.contains("cx-ruling"),
-  );
-  tl.to(content, { autoAlpha: 0, y: -18, duration: 0.4, ease: ease.inOut }, at);
+  tl.to(Array.from(scene.children), { autoAlpha: 0, y: -18, duration: 0.4, ease: ease.inOut }, at);
 }
 
 /** Settle a still: everything the scene shows is in place by one second. */

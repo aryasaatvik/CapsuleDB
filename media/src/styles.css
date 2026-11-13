@@ -1,6 +1,8 @@
 /*
- * CapsuleDB launch identity: ledger paper, ink, and one vermilion seal for package-owned things.
- * Ready and pending are the only other colors. Fonts are bundled from Fontsource at build time.
+ * CapsuleDB launch identity: ink on near-white, a neutral grey ladder, hairline rings, and one
+ * seal accent for what a capsule owns (its namespace, its rows, its ID). Ready and pending are the
+ * only status colors. Radii stay at 8px or less; the brand mark is the one rounded shape.
+ * Fonts are bundled from Fontsource at build time.
  * Motion never lives here: the build rejects transitions and animations.
  */
 
@@ -22,26 +24,32 @@
 }
 
 :root {
-  --cx-paper: #f1eee6;
-  --cx-panel: #faf8f3;
-  --cx-ink: #141619;
-  --cx-soft: #52575b;
-  --cx-faint: #8a8d8a;
-  --cx-rule: #d6d0c2;
+  --cx-canvas: #fafaf9;
+  --cx-card: #ffffff;
+  --cx-inset: #f4f4f3;
+  --cx-hairline: #e7e7e5;
+  --cx-hairline-strong: #d4d4d1;
+  --cx-ink: #171717;
+  --cx-body: #4f4f4d;
+  --cx-mute: #6e6e6b;
   --cx-seal: #e2502b;
-  --cx-seal-deep: #a3341a;
-  --cx-seal-wash: #f6dccf;
-  --cx-ready: #1f7347;
-  --cx-ready-wash: #d9eadc;
-  --cx-pending: #a86a12;
-  --cx-pending-wash: #f2e3c4;
-  --cx-code: #15171b;
-  --cx-code-ink: #ebe7de;
-  --cx-code-dim: #8c929a;
-  --cx-code-str: #f3a383;
-  --cx-code-num: #e7c46c;
-  --cx-code-key: #a9c9d9;
-  --cx-code-hi: #2a2420;
+  --cx-seal-ink: #b23d1a;
+  --cx-seal-soft: #fdefe9;
+  --cx-ready: #1d6f45;
+  --cx-ready-soft: #e4f2ea;
+  --cx-pending: #8a560c;
+  --cx-pending-soft: #f8eedb;
+  /* The dark card: a terminal or the host's client, for contrast against the light canvas. */
+  --cx-dark: #131313;
+  --cx-dark-hairline: #262626;
+  --cx-dark-ink: #ededec;
+  --cx-dark-body: #a3a3a1;
+  /* The capsule-owned rule; 2px at the site's 1280px scale, 3px on a 1920px canvas. */
+  --cx-rule-w: 3px;
+  --cx-ring: 0 0 0 1px rgba(0, 0, 0, 0.08);
+  --cx-lift:
+    0 0 0 1px rgba(0, 0, 0, 0.08), 0 2px 3px rgba(0, 0, 0, 0.04),
+    0 24px 40px -24px rgba(0, 0, 0, 0.12);
   --cx-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
   --cx-mono: "JetBrains Mono", ui-monospace, monospace;
 }
@@ -49,7 +57,7 @@
 html,
 body {
   margin: 0;
-  background: var(--cx-paper);
+  background: var(--cx-canvas);
   color: var(--cx-ink);
   font-family: var(--cx-sans);
   -webkit-font-smoothing: antialiased;
@@ -60,26 +68,19 @@ body {
 .cx-scene {
   position: relative;
   overflow: hidden;
-  background: var(--cx-paper);
+  background: var(--cx-canvas);
   color: var(--cx-ink);
   font-family: var(--cx-sans);
+  font-stretch: 100%;
+  /* JetBrains Mono must not turn `=>` or `->` into arrows; nothing here wants ligatures. */
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "calt" 0,
+    "liga" 0;
 }
 
 .cx-scene * {
   box-sizing: border-box;
-}
-
-/* Faint ledger ruling: the paper the whole identity is printed on. */
-.cx-ruling {
-  position: absolute;
-  inset: 0;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 53px,
-    rgba(20, 22, 25, 0.045) 53px,
-    rgba(20, 22, 25, 0.045) 54px
-  );
 }
 
 .cx-abs {
@@ -88,14 +89,14 @@ body {
 
 .cx-header {
   position: absolute;
-  top: 44px;
+  top: 40px;
   left: 96px;
   right: 96px;
-  height: 64px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 2px solid var(--cx-ink);
+  border-bottom: 1px solid var(--cx-hairline);
 }
 
 .cx-brand {
@@ -103,27 +104,16 @@ body {
   align-items: center;
   gap: 14px;
   font-size: 28px;
-  font-weight: 700;
-  font-stretch: 110%;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: -0.025em;
 }
 
-.cx-brand b {
-  color: var(--cx-seal);
-  font-weight: 700;
-}
-
-.cx-kicker {
+/* A label where one is needed: sentence case, muted, never tracked uppercase. */
+.cx-label {
   font-family: var(--cx-mono);
   font-size: 20px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--cx-soft);
-}
-
-.cx-kicker--seal {
-  color: var(--cx-seal-deep);
+  font-weight: 400;
+  color: var(--cx-mute);
 }
 
 /* Type ------------------------------------------------------------------------------------- */
@@ -131,20 +121,19 @@ body {
 .cx-h {
   margin: 0;
   font-family: var(--cx-sans);
-  font-weight: 760;
-  font-stretch: 112%;
-  letter-spacing: -0.035em;
-  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.02;
   color: var(--cx-ink);
 }
 
 .cx-sub {
   margin: 0;
   font-size: 30px;
-  font-weight: 450;
-  line-height: 1.35;
-  color: var(--cx-soft);
-  letter-spacing: -0.005em;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--cx-body);
 }
 
 .cx-mask {
@@ -162,52 +151,100 @@ body {
   font-family: var(--cx-mono);
 }
 
-.cx-seal {
-  color: var(--cx-seal);
+.cx-mute {
+  color: var(--cx-mute);
+}
+
+.cx-seal-ink {
+  color: var(--cx-seal-ink);
 }
 
 .cx-note {
-  font-family: var(--cx-mono);
+  font-family: var(--cx-sans);
   font-size: 19px;
   line-height: 1.5;
-  color: var(--cx-soft);
+  color: var(--cx-mute);
+}
+
+/* Inline code in prose, as the site sets it. */
+.cx-ic {
+  font-family: var(--cx-mono);
+  font-size: 0.86em;
+  color: var(--cx-ink);
+  background: var(--cx-inset);
+  box-shadow: var(--cx-ring);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* A square seal key, used once beside text that names something a capsule owns. */
+.cx-key {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--cx-seal);
+  flex-shrink: 0;
+}
+
+/* Windows ---------------------------------------------------------------------------------- */
+
+/* A hairline window: a card with a bar naming its file, command, or role. */
+.cx-window {
+  position: absolute;
+  background: var(--cx-card);
+  border-radius: 8px;
+  box-shadow: var(--cx-lift);
+  overflow: hidden;
+}
+
+.cx-window--flat {
+  box-shadow: var(--cx-ring);
+}
+
+.cx-winbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 60px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--cx-hairline);
+  font-family: var(--cx-mono);
+  font-size: 18px;
+  color: var(--cx-body);
+  white-space: nowrap;
+}
+
+.cx-winbar > :last-child:not(:first-child) {
+  font-family: var(--cx-sans);
+  color: var(--cx-mute);
+}
+
+/* The host's client or a terminal: the one dark card. */
+.cx-dark {
+  background: var(--cx-dark);
+  color: var(--cx-dark-ink);
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px var(--cx-dark-hairline);
 }
 
 /* Code ------------------------------------------------------------------------------------- */
 
 .cx-code {
-  position: absolute;
-  background: var(--cx-code);
-  color: var(--cx-code-ink);
-  border-radius: 18px;
-  padding: 34px 0 34px 0;
+  font-weight: 400;
+}
+
+.cx-code-body {
+  position: relative;
+  padding: 24px 0;
   font-family: var(--cx-mono);
-  font-weight: 450;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
-}
-
-.cx-code-file {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 36px 22px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid rgba(235, 231, 222, 0.12);
-  font-size: 17px;
-  letter-spacing: 0.04em;
-  color: var(--cx-code-dim);
-}
-
-.cx-code-file i {
-  width: 12px;
-  height: 12px;
-  border-radius: 6px;
-  background: var(--cx-seal);
+  color: var(--cx-body);
 }
 
 .cx-code-line {
   position: relative;
-  padding: 0 36px;
+  padding: 0 32px;
   white-space: pre;
 }
 
@@ -215,215 +252,223 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  background: rgba(226, 80, 43, 0.2);
-  border-left: 5px solid var(--cx-seal);
   transform-origin: left center;
 }
 
-.tk-str {
-  color: var(--cx-code-str);
+.cx-code-hi--seal {
+  background: var(--cx-seal-soft);
+  box-shadow: inset var(--cx-rule-w) 0 0 var(--cx-seal);
 }
-.tk-num {
-  color: var(--cx-code-num);
+
+.cx-code-hi--ink {
+  background: var(--cx-inset);
+  box-shadow: inset var(--cx-rule-w) 0 0 var(--cx-ink);
 }
+
+/* Monochrome highlighting: keywords in ink, strings in ink, the rest grey, accent on the ID. */
 .tk-kw {
-  color: #d6a4c8;
+  color: var(--cx-ink);
+  font-weight: 600;
 }
-.tk-key {
-  color: var(--cx-code-key);
+.tk-str {
+  color: var(--cx-ink);
 }
 .tk-com {
-  color: var(--cx-code-dim);
+  color: var(--cx-mute);
   font-style: italic;
 }
-.tk-dim {
-  color: var(--cx-code-dim);
+.tk-id {
+  color: var(--cx-seal-ink);
+  background: var(--cx-seal-soft);
+  border-radius: 3px;
+  box-shadow: 0 0 0 3px var(--cx-seal-soft);
 }
 
-/* Capsule ---------------------------------------------------------------------------------- */
+/* Listings --------------------------------------------------------------------------------- */
 
-.cx-capsule {
-  position: absolute;
-  display: flex;
-  border: 4px solid var(--cx-ink);
-  overflow: hidden;
-  background: var(--cx-panel);
-}
-
-.cx-cell {
-  position: relative;
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 10px;
-  border-left: 3px solid var(--cx-ink);
-}
-
-.cx-cell:first-child {
-  border-left: 0;
-}
-
-.cx-cell-fill {
-  position: absolute;
-  inset: 0;
-  background: var(--cx-seal-wash);
-  transform-origin: left center;
-}
-
-.cx-cell > :not(.cx-cell-fill) {
-  position: relative;
-}
-
-.cx-label {
+/* A `\dt`-style listing: hairline rows, a muted header, owners in the last column. */
+.cx-list {
   font-family: var(--cx-mono);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 21px;
+  color: var(--cx-body);
 }
 
-/* Pills, badges, and rules ----------------------------------------------------------------- */
-
-.cx-pill {
-  display: inline-flex;
+.cx-list-head,
+.cx-list-row {
+  position: relative;
+  display: grid;
   align-items: center;
-  gap: 12px;
-  height: 56px;
-  padding: 0 26px 0 20px;
-  border-radius: 28px;
-  border: 3px solid var(--cx-ink);
-  background: var(--cx-panel);
-  font-family: var(--cx-mono);
-  font-size: 22px;
-  font-weight: 600;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--cx-hairline);
   white-space: nowrap;
 }
 
-.cx-pill i {
-  width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  background: var(--cx-seal);
-  flex-shrink: 0;
+.cx-list-head {
+  height: 46px;
+  font-weight: 500;
+  color: var(--cx-mute);
+}
+
+.cx-list-row {
+  height: 50px;
+}
+
+.cx-list-row:last-child {
+  border-bottom: 0;
+}
+
+.cx-list-row > * {
+  position: relative;
+}
+
+.cx-list-row--host {
+  color: var(--cx-body);
+}
+
+.cx-list-row--ledger {
+  color: var(--cx-ink);
+}
+
+.cx-list-row--capsule {
+  color: var(--cx-ink);
+  background: var(--cx-seal-soft);
+  box-shadow: inset var(--cx-rule-w) 0 0 var(--cx-seal);
+}
+
+.cx-owner {
+  color: var(--cx-mute);
+}
+
+.cx-list-row--capsule .cx-owner,
+.cx-nsp {
+  color: var(--cx-seal-ink);
+}
+
+/* A wash that fills a row when it is named; it carries the capsule rule with it. */
+.cx-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--cx-seal-soft);
+  box-shadow: inset var(--cx-rule-w) 0 0 var(--cx-seal);
+  transform-origin: left center;
+}
+
+/* A capsule-owned item outside a listing: a square row with the seal rule. */
+.cx-owned {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  height: 52px;
+  padding: 0 20px 0 22px;
+  border-radius: 4px;
+  background: var(--cx-seal-soft);
+  box-shadow: inset var(--cx-rule-w) 0 0 var(--cx-seal);
+  font-family: var(--cx-mono);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--cx-seal-ink);
+  white-space: nowrap;
+}
+
+/* Chips and rules -------------------------------------------------------------------------- */
+
+.cx-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 52px;
+  padding: 0 20px;
+  border-radius: 6px;
+  background: var(--cx-card);
+  box-shadow: var(--cx-ring);
+  font-family: var(--cx-mono);
+  font-size: 21px;
+  color: var(--cx-body);
+  white-space: nowrap;
 }
 
 .cx-badge {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  height: 44px;
-  padding: 0 18px;
-  border-radius: 8px;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 4px;
   font-family: var(--cx-mono);
   font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 500;
   white-space: nowrap;
 }
 
 .cx-badge i {
-  width: 12px;
-  height: 12px;
-  border-radius: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
   background: currentColor;
 }
 
 .cx-badge--ready {
   color: var(--cx-ready);
-  background: var(--cx-ready-wash);
+  background: var(--cx-ready-soft);
 }
 
 .cx-badge--pending {
   color: var(--cx-pending);
-  background: var(--cx-pending-wash);
+  background: var(--cx-pending-soft);
 }
 
-.cx-badge--seal {
-  color: var(--cx-seal-deep);
-  background: var(--cx-seal-wash);
+/* A failure: the seal's text tone on its wash, without the capsule rule. */
+.cx-badge--error {
+  color: var(--cx-seal-ink);
+  background: var(--cx-seal-soft);
 }
 
-.cx-badge--code {
-  color: var(--cx-code-ink);
-  background: rgba(235, 231, 222, 0.12);
-}
-
-.cx-badge--ink {
-  color: var(--cx-paper);
-  background: var(--cx-ink);
+.cx-badge--type {
+  color: var(--cx-ink);
+  background: var(--cx-inset);
+  box-shadow: var(--cx-ring);
 }
 
 .cx-rule {
   display: block;
-  height: 2px;
-  background: var(--cx-ink);
+  height: 1px;
+  background: var(--cx-hairline-strong);
   transform-origin: left center;
 }
 
 .cx-bar {
   display: block;
-  height: 8px;
+  height: 6px;
   background: var(--cx-seal);
   transform-origin: left center;
 }
 
-.cx-box {
-  position: absolute;
-  border: 3px solid var(--cx-ink);
-  border-radius: 20px;
-  background: var(--cx-panel);
+/* A titled column of prose with a hairline above it. */
+.cx-fact {
+  flex: 1 1 0;
+  border-top: 1px solid var(--cx-hairline-strong);
+  padding-top: 22px;
 }
 
-.cx-box--dashed {
-  border-style: dashed;
-  background: transparent;
-}
-
-.cx-tag {
-  position: absolute;
-  top: -17px;
-  left: 28px;
-  padding: 0 12px;
-  background: var(--cx-paper);
-  font-family: var(--cx-mono);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.cx-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  height: 50px;
-  padding: 0 18px;
-  border-radius: 10px;
-  font-family: var(--cx-mono);
-  font-size: 21px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.cx-row--host {
-  background: #e6e2d8;
-  color: var(--cx-soft);
-}
-
-.cx-row--capsule {
-  background: var(--cx-seal-wash);
+.cx-fact-title {
+  display: block;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
   color: var(--cx-ink);
 }
 
-.cx-row--ledger {
-  background: var(--cx-ink);
-  color: var(--cx-paper);
+.cx-fact-text {
+  margin: 10px 0 0;
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1.38;
+  letter-spacing: -0.01em;
+  color: var(--cx-body);
 }
 
 .cx-swatch {
   width: 14px;
   height: 14px;
-  border-radius: 3px;
+  border-radius: 2px;
   flex-shrink: 0;
 }

@@ -54,12 +54,12 @@ const files = await Promise.all(
 );
 const columns = 4;
 const cells = checkpoints.map(
-  (_, index) => `[${index}:v]scale=480:270,pad=480:300:0:0:color=0xf1eee6[v${index}]`,
+  (_, index) => `[${index}:v]scale=480:270,pad=480:300:0:0:color=0xfafaf9[v${index}]`,
 );
 const layout = checkpoints
   .map((_, index) => `${(index % columns) * 480}_${Math.floor(index / columns) * 300}`)
   .join("|");
-const graph = `${cells.join(";")};${checkpoints.map((_, index) => `[v${index}]`).join("")}xstack=inputs=${files.length}:layout=${layout}:fill=0xf1eee6[out]`;
+const graph = `${cells.join(";")};${checkpoints.map((_, index) => `[v${index}]`).join("")}xstack=inputs=${files.length}:layout=${layout}:fill=0xfafaf9[out]`;
 await run([
   "ffmpeg",
   "-y",

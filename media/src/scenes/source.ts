@@ -65,13 +65,13 @@ export const tokenUsage = {
     { code: "const tokens = yield* OneTimeTokens;", result: undefined },
     {
       code: "const { token } = yield* tokens.issue(expiresAt);",
-      result: { tone: "code", text: "IssuedToken" },
+      result: { tone: "type", text: "IssuedToken" },
     },
     { code: "yield* tokens.get(token);", result: { tone: "pending", text: "Pending" } },
-    { code: "yield* tokens.consume(token);", result: { tone: "ready", text: "AuditReceipt" } },
+    { code: "yield* tokens.consume(token);", result: { tone: "type", text: "AuditReceipt" } },
     {
       code: "yield* tokens.consume(token);",
-      result: { tone: "seal", text: "TokenAlreadyConsumed" },
+      result: { tone: "error", text: "TokenAlreadyConsumed" },
     },
   ],
 } as const;

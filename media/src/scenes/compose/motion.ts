@@ -16,7 +16,7 @@ export const compose: SceneMotion = (tl, root) => {
   rise(tl, one(root, "host"), 2.0, { y: 24, duration: 0.6 });
   rise(tl, one(root, "registry"), 2.4, { y: 16, duration: 0.5 });
   tl.fromTo(
-    one(root, "pill"),
+    one(root, "capsule-row"),
     { x: -260, autoAlpha: 0 },
     { x: 0, autoAlpha: 1, duration: 0.8, ease: ease.snap },
     3.0,
