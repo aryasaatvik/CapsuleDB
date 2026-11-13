@@ -38,9 +38,11 @@ export function FilmPlayer({ src, poster, label, describedBy }: FilmPlayerProps)
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!autoplay || !entry) return;
+        if (!entry) return;
         // The threshold only decides when this runs; the ratio decides whether half is on screen.
+        // `autoplay` gates only automatic starts: scrolling away always pauses the film.
         if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+          if (!autoplay) return;
           video.muted = true;
           video.play().catch(() => {});
         } else if (!video.paused) {
