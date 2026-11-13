@@ -42,11 +42,11 @@ export default defineConfig({
   },
   navigation: {
     repo: true,
-    tabs: [
-      { label: "Docs", path: "/docs" },
-      { label: "Quick start", path: "/docs/quickstart" },
-      { label: "Changelog", path: "/docs/changelog" },
+    actions: [
+      { href: "/docs/quickstart", label: "Quick start" },
+      { href: "/docs/changelog", label: "Changelog" },
     ],
+    tabs: [{ label: "Docs", path: "/docs" }],
   },
   search: orama(),
   seo: {

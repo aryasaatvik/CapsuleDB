@@ -241,5 +241,6 @@ side of the boundary it serves, and earn its place with an artifact rather than 
 
 ## Known Gaps
 
-Forms, error states beyond the 404, and interactive demos are not designed. The launch film and
+Forms, error states beyond the 404, and interactive demos are not designed. Blume's default 404
+fills its home button with the accent, the one place the Seal Rule bends. The launch film and
 infographics are rendered from `media/` with its own tokens; keep them in step with this sheet.
