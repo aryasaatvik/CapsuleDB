@@ -1,0 +1,855 @@
+---
+import CodeBlock from "blume/components/content/CodeBlock.astro";
+import PageLayout from "blume/components/layout/PageLayout.astro";
+import data from "blume:data";
+
+import { FilmPlayer } from "../components/FilmPlayer.tsx";
+import { snippet } from "../components/snippets.ts";
+
+const { config } = data;
+const pageTitle = "CapsuleDB: ship persistence with your package";
+const pageDescription =
+  "CapsuleDB lets an Effect library own its tables, typed queries and migrations inside the host app's existing database, over the client the host owns.";
+
+// Every code block here is a region of a file CI typechecks; the quick start file also runs.
+const capsuleDefinition = snippet("examples/reference-token/Capsule.ts", "capsule");
+const declare = snippet("examples/quick-start.ts", "table");
+const bundle = snippet("examples/quick-start.ts", "capsule");
+const compose = snippet("examples/quick-start.ts", "compose");
+
+const installCommand = "npm i capsuledb effect";
+const repository = "https://github.com/aryasaatvik/CapsuleDB";
+const transcript = `${repository}/blob/main/media/launches/introducing-capsuledb/TRANSCRIPT.md`;
+
+// The reference capsule's tables and ledger rows are what tests/conformance prepares on every
+// provider. `accounts` and `sessions` stand in for the host's own tables.
+const capsulePrefix = "capsule_reference_2e_";
+const relations: ReadonlyArray<{ name: string; owner: string; kind: "host" | "capsule" | "ledger" }> = [
+  { name: "accounts", owner: "app", kind: "host" },
+  { name: "sessions", owner: "app", kind: "host" },
+  { name: "capsule_reference_2e_token_audit", owner: "reference.tokens", kind: "capsule" },
+  { name: "capsule_reference_2e_tokens", owner: "reference.tokens", kind: "capsule" },
+  { name: "capsuledb_registry_ledger", owner: "capsuledb", kind: "ledger" },
+  { name: "capsuledb_registry_metadata", owner: "capsuledb", kind: "ledger" },
+];
+const ledger = [
+  { capsule: "reference.tokens", id: 1, name: "create-tokens" },
+  { capsule: "reference.tokens", id: 2, name: "add-token-audit" },
+];
+
+const providers = [
+  { profile: "Pg.profile", dialect: "postgres", execution: "Transactional", note: "Preparation serializes with an advisory lock." },
+  { profile: "SqliteBun.profile", dialect: "sqlite", execution: "Transactional", note: "Host-owned Bun SQLite client." },
+  { profile: "Libsql.profile", dialect: "sqlite", execution: "Transactional", note: "Host-owned libSQL client." },
+  { profile: "D1.profile", dialect: "sqlite", execution: "Atomic batch", note: "Bounded batches. No interactive transactions or Effect steps." },
+];
+
+const limits = [
+  { title: "Not an ORM", body: "No public tables, rows or query builders. Persistence details stay inside the capsule." },
+  { title: "Not a deployment service", body: "It does not invoke Wrangler or manage provider resources. The optional Alchemy resource prepares a database the host already runs." },
+  { title: "Not a second connection", body: "The host's client stays the host's, from open to close." },
+  { title: "Not a sandbox", body: "Namespace collisions are rejected, but trusted capsule SQL is not isolated. The host composes only what it trusts." },
+];
+
+const guides = [
+  { href: "/docs/capsule-authors", title: "Capsule authors", body: "IDs, private migrations, services and provider bodies." },
+  { href: "/docs/host-applications", title: "Host applications", body: "Client ownership, preparation, readiness and serverless deploys." },
+  { href: "/docs/providers", title: "Providers", body: "The capability matrix and D1's atomic-batch contract." },
+  { href: "/docs/migrations-and-recovery", title: "Migrations and recovery", body: "Append-only changes and what to do when preparation fails." },
+  { href: "/docs/design", title: "Design principles", body: "The contract and the boundaries it keeps." },
+  { href: "/docs/changelog", title: "Changelog", body: "Every release, with the Effect versions it requires." },
+];
+---
+
+<PageLayout
+  analytics={config.analytics}
+  appleIcon={config.appleIcon}
+  banner={config.banner}
+  favicon={config.favicon}
+  fontCssVars={data.fontCssVars}
+  logo={config.logo}
+  navigation={data.navigation}
+  ogEnabled={config.og.enabled}
+  ogImage="/media/og.png"
+  ogImageAlt="CapsuleDB: ship persistence with your package. Use the database the app already owns."
+  ogImageSize={{ width: 1200, height: 630 }}
+  page={{ description: pageDescription, route: "/", title: pageTitle }}
+  searchEnabled={config.search.enabled}
+  site={{ description: config.description, title: config.title }}
+  siteUrl={config.site}
+  themeMode={config.theme.mode}
+  x={config.x}
+>
+  <main class="cx">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <h1 id="hero-title">Ship persistence with your package. Use the database the app already owns.</h1>
+        <p class="lede">
+          CapsuleDB lets an Effect library own its tables, typed queries and migrations inside the
+          host app's existing database. The host keeps its client. The package keeps its schema
+          private.
+        </p>
+        <div class="actions">
+          <a class="btn" href="/docs/quickstart">Read the quick start</a>
+          <div class="cmd">
+            <code><span class="prompt-sign" aria-hidden="true">$ </span>{installCommand}</code>
+            <button type="button" data-copy={installCommand} aria-label="Copy install command">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="artifact" role="group" aria-label="A capsule declaration and the host database it lands in">
+        <div class="pane pane-code">
+          <CodeBlock code={capsuleDefinition} lang="ts" title="examples/reference-token/Capsule.ts" />
+        </div>
+        <div class="pane pane-db">
+          <div class="bar"><span>psql example_app</span><span>PostgreSQL</span></div>
+          <div class="psql">
+            <p class="prompt"><span class="mute">example_app=&gt;</span> \dt</p>
+            <table class="rel relations">
+              <caption class="sr-only">Tables in an example host database, and who owns each</caption>
+              <thead><tr><th scope="col">Name</th><th scope="col">Owned by</th></tr></thead>
+              <tbody>
+                {relations.map((row) => (
+                  <tr class={row.kind}>
+                    <td>
+                      {row.kind === "capsule" ? (
+                        <Fragment><span class="nsp">{capsulePrefix}</span><wbr />{row.name.slice(capsulePrefix.length)}</Fragment>
+                      ) : row.name}
+                    </td>
+                    <td class="owner">{row.owner}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p class="prompt"><span class="mute">example_app=&gt;</span> select capsule_id, migration_id, name from capsuledb_registry_ledger;</p>
+            <table class="rel">
+              <caption class="sr-only">Migrations CapsuleDB's ledger recorded for the capsule</caption>
+              <thead><tr><th scope="col">capsule_id</th><th scope="col">migration_id</th><th scope="col">name</th></tr></thead>
+              <tbody>
+                {ledger.map((row) => (
+                  <tr><td>{row.capsule}</td><td>{row.id}</td><td>{row.name}</td></tr>
+                ))}
+              </tbody>
+            </table>
+            <div class="status-line">
+              <span>Registry.status</span>
+              <span class="status ready"><span class="dot" aria-hidden="true"></span>Ready</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="artifact-note">
+        <span class="key" aria-hidden="true"></span>
+        The reference capsule prefixes its tables with the namespace CapsuleDB derives from its ID.
+        The host cannot rename it, and the tables stay out of the package's public API.
+      </p>
+    </section>
+
+    <section class="block" aria-labelledby="steps-title">
+      <h2 id="steps-title">Three steps from package to host</h2>
+      <p class="section-lede">
+        Each block is a region of <a href={`${repository}/blob/main/examples/quick-start.ts`}><code>examples/quick-start.ts</code></a>,
+        which CI typechecks and runs against the built package.
+      </p>
+      <ol class="steps">
+        <li class="step">
+          <div>
+            <h3>Declare the table</h3>
+            <p>The package declares its table once. CapsuleDB renders it for PostgreSQL and SQLite.</p>
+          </div>
+          <CodeBlock code={declare} lang="ts" title="examples/quick-start.ts" />
+        </li>
+        <li class="step">
+          <div>
+            <h3>Export one capsule</h3>
+            <p>
+              Tables, an append-only migration history and an Effect service, bundled as one module
+              constant the host can import without running anything.
+            </p>
+          </div>
+          <CodeBlock code={bundle} lang="ts" title="examples/quick-start.ts" />
+        </li>
+        <li class="step">
+          <div>
+            <h3>Compose it over the host's client</h3>
+            <p>
+              The host lists the capsules it trusts. <code>Registry.layer</code> applies pending
+              migrations before any service answers, and still requires the host's
+              <code>SqlClient</code>.
+            </p>
+            <a class="text-link" href="/docs/quickstart">Run the whole quick start</a>
+          </div>
+          <CodeBlock code={compose} lang="ts" title="examples/quick-start.ts" />
+        </li>
+      </ol>
+      <p class="proof">
+        In use: DomainKit ships its PostgreSQL storage as one CapsuleDB capsule,{" "}
+        <a href="https://www.npmjs.com/package/@domainkit/capsuledb"><code>@domainkit/capsuledb</code></a>.
+      </p>
+    </section>
+
+    <section class="block" aria-labelledby="film-title">
+      <div class="film-row">
+        <div class="film-copy">
+          <h2 id="film-title">The boundary in one minute</h2>
+          <p id="film-caption">
+            A silent film on what the package owns, what the host owns, and how preparation reaches
+            Ready.
+          </p>
+          <a class="text-link" href={transcript}>Read the transcript</a>
+        </div>
+        <figure class="film">
+          <div class="film-frame">
+            <FilmPlayer
+              client:only="react"
+              describedBy="film-caption"
+              label="CapsuleDB launch film, 60 seconds, silent"
+              poster="/media/capsuledb-launch-poster.jpg"
+              src="/media/capsuledb-launch.mp4"
+            />
+            <noscript>
+              <video
+                aria-describedby="film-caption"
+                aria-label="CapsuleDB launch film, 60 seconds, silent"
+                class="film-fallback"
+                controls
+                height="1080"
+                playsinline
+                poster="/media/capsuledb-launch-poster.jpg"
+                preload="metadata"
+                width="1920"
+              >
+                <source src="/media/capsuledb-launch.mp4" type="video/mp4" />
+                <a href="/media/capsuledb-launch.mp4">Download the CapsuleDB launch film</a>
+              </video>
+            </noscript>
+          </div>
+        </figure>
+      </div>
+      <div class="plates">
+        <figure>
+          <a href="/media/capsule-anatomy.png"><img src="/media/capsule-anatomy.png" width="1920" height="1080" loading="lazy" decoding="async" alt="Capsule anatomy: the reference capsule's tables, append-only migrations and typed OneTimeTokens service" /></a>
+          <figcaption>Capsule anatomy</figcaption>
+        </figure>
+        <figure>
+          <a href="/media/shared-database.png"><img src="/media/shared-database.png" width="1920" height="1080" loading="lazy" decoding="async" alt="Host composition: several capsules and the host's own persistence share one host-owned SqlClient and database" /></a>
+          <figcaption>Host composition</figcaption>
+        </figure>
+        <figure>
+          <a href="/media/preparation-readiness.png"><img src="/media/preparation-readiness.png" width="1920" height="1080" loading="lazy" decoding="async" alt="Preparation and readiness: Registry.layer reads the ledger, applies pending migrations and reaches Ready" /></a>
+          <figcaption>Preparation and readiness</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="block" aria-labelledby="providers-title">
+      <h2 id="providers-title">One migration history, four providers</h2>
+      <p class="section-lede">
+        Pick the profile that matches the host's client. The logical history stays the same.
+      </p>
+      <div class="scroll" tabindex="0" role="region" aria-labelledby="providers-title">
+        <table class="ptable">
+          <thead><tr><th scope="col">Profile</th><th scope="col">Dialect</th><th scope="col">Execution</th><th scope="col">Notes</th></tr></thead>
+          <tbody>
+            {providers.map((row) => (
+              <tr><td><code>{row.profile}</code></td><td>{row.dialect}</td><td>{row.execution}</td><td class="note">{row.note}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="after-table"><a class="text-link" href="/docs/providers">Read the provider guide</a></p>
+    </section>
+
+    <section class="block" aria-labelledby="limits-title">
+      <h2 id="limits-title">Where it stops</h2>
+      <p class="section-lede">
+        CapsuleDB coordinates migrations and provides a capsule's service over the host's client.
+        It does nothing past that line.
+      </p>
+      <dl class="limits">
+        {limits.map((item) => (
+          <div><dt>{item.title}</dt><dd>{item.body}</dd></div>
+        ))}
+      </dl>
+    </section>
+
+    <section class="block" aria-labelledby="guides-title">
+      <h2 id="guides-title">Guides</h2>
+      <p class="section-lede">The full contract, from both sides of the boundary.</p>
+      <ul class="guides">
+        {guides.map((guide) => (
+          <li><a href={guide.href}><strong>{guide.title}</strong><span>{guide.body}</span></a></li>
+        ))}
+      </ul>
+    </section>
+  </main>
+</PageLayout>
+
+<script>
+  for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-copy]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy ?? "");
+        button.textContent = "Copied";
+        setTimeout(() => (button.textContent = "Copy"), 1600);
+      } catch {
+        button.textContent = "Select and copy";
+      }
+    });
+  }
+</script>
+
+<style>
+  .cx {
+    --max: 72.5rem;
+    --gutter: clamp(1rem, 4vw, 2rem);
+    color: var(--cx-ink);
+    font-size: 1rem;
+    line-height: 1.55;
+    margin: 0 auto;
+    max-width: calc(var(--max) + 2 * var(--gutter));
+    padding: 0 var(--gutter) 2rem;
+  }
+  .cx code,
+  .cx pre {
+    font-family: var(--blume-font-mono);
+  }
+  .cx :where(p, li, td, dd) > code {
+    background: var(--cx-inset);
+    border-radius: 4px;
+    box-shadow: var(--cx-ring);
+    font-size: 0.86em;
+    padding: 1px 5px;
+  }
+  .cx a {
+    color: inherit;
+  }
+  .sr-only {
+    clip: rect(0 0 0 0);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+
+  /* Hero */
+  .hero {
+    padding: clamp(3rem, 8vw, 5.5rem) 0 1.5rem;
+  }
+  .hero-copy {
+    max-width: 47.5rem;
+  }
+  h1 {
+    font-size: clamp(2.25rem, 5.6vw, 3.75rem);
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 1.04;
+    margin: 0 0 1.375rem;
+    text-wrap: balance;
+  }
+  .lede {
+    color: var(--cx-body);
+    font-size: 1.1875rem;
+    margin: 0 0 2rem;
+    max-width: 36em;
+    text-wrap: pretty;
+  }
+  .actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .btn {
+    align-items: center;
+    background: var(--cx-ink);
+    border-radius: 999px;
+    color: var(--cx-on-ink) !important;
+    display: inline-flex;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    height: 2.75rem;
+    letter-spacing: -0.01em;
+    padding: 0 1.25rem;
+    text-decoration: none;
+  }
+  .btn:hover {
+    opacity: 0.88;
+  }
+  .cmd {
+    align-items: center;
+    background: var(--cx-card);
+    border-radius: 8px;
+    box-shadow: var(--cx-ring);
+    display: inline-flex;
+    gap: 0.75rem;
+    height: 2.75rem;
+    padding: 0 0.3125rem 0 1rem;
+  }
+  .cmd code {
+    font-size: 0.875rem;
+    font-variant-ligatures: none;
+  }
+  .prompt-sign {
+    color: var(--cx-mute);
+    user-select: none;
+  }
+  .cmd button {
+    background: var(--cx-inset);
+    border: 0;
+    border-radius: 6px;
+    color: var(--cx-body);
+    cursor: pointer;
+    font: 500 0.8125rem var(--blume-font-body);
+    height: 2.125rem;
+    padding: 0 0.75rem;
+  }
+  .cmd button:hover {
+    color: var(--cx-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--cx-seal);
+    outline-offset: 2px;
+  }
+
+  /* The artifact: the capsule declaration beside the database it lands in. */
+  .artifact {
+    background: var(--cx-card);
+    border-radius: 8px;
+    box-shadow: var(--cx-lift);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+    margin-top: 3.5rem;
+    overflow: hidden;
+  }
+  .pane + .pane {
+    border-left: 1px solid var(--cx-hairline);
+  }
+  .pane-code :global(.prose) {
+    height: 100%;
+  }
+  .pane-code :global(figure),
+  .pane-code :global(pre) {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+  .pane-code :global(figure) {
+    background: transparent !important;
+    height: 100%;
+  }
+  .bar {
+    align-items: center;
+    border-bottom: 1px solid var(--cx-hairline);
+    color: var(--cx-body);
+    display: flex;
+    font: 0.78125rem var(--blume-font-mono);
+    gap: 0.75rem;
+    height: 2.75rem;
+    justify-content: space-between;
+    padding: 0 1.125rem;
+  }
+  .psql {
+    color: var(--cx-body);
+    font: 0.8125rem/1.6 var(--blume-font-mono);
+    font-variant-ligatures: none;
+    padding: 1rem 1.125rem 1.125rem;
+  }
+  .psql * {
+    font-variant-ligatures: none;
+    font-feature-settings:
+      "calt" 0,
+      "liga" 0;
+  }
+  .prompt {
+    color: var(--cx-ink);
+    margin: 0 0 0.5rem;
+  }
+  .mute {
+    color: var(--cx-mute);
+  }
+  .rel {
+    border-collapse: collapse;
+    margin: 0 0 1.125rem;
+    width: 100%;
+  }
+  .rel th {
+    border-bottom: 1px solid var(--cx-hairline);
+    color: var(--cx-mute);
+    font-weight: 500;
+    padding: 0.25rem 0.625rem 0.375rem;
+    text-align: left;
+  }
+  .rel td {
+    border-bottom: 1px solid var(--cx-hairline);
+    padding: 0.3125rem 0.625rem;
+    white-space: nowrap;
+  }
+  .rel tr.capsule td {
+    background: color-mix(in oklab, var(--cx-seal-soft) 70%, transparent);
+    color: var(--cx-ink);
+  }
+  .rel tr.capsule td:first-child {
+    box-shadow: inset 2px 0 0 var(--cx-seal);
+  }
+  .rel tr.ledger td {
+    color: var(--cx-ink);
+  }
+  .rel .owner {
+    color: var(--cx-mute);
+  }
+  .rel tr.capsule .owner,
+  .nsp {
+    color: var(--cx-seal-ink);
+  }
+  .status-line {
+    align-items: center;
+    border-top: 1px dashed var(--cx-hairline-strong);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: space-between;
+    padding-top: 0.75rem;
+  }
+  .status {
+    align-items: center;
+    border-radius: 4px;
+    display: inline-flex;
+    font-size: 0.75rem;
+    font-weight: 500;
+    gap: 0.375rem;
+    height: 1.375rem;
+    padding: 0 0.5rem;
+  }
+  .status.ready {
+    background: var(--cx-ready-soft);
+    color: var(--cx-ready);
+  }
+  .dot {
+    background: currentColor;
+    border-radius: 50%;
+    height: 6px;
+    width: 6px;
+  }
+  .artifact-note {
+    color: var(--cx-mute);
+    font-size: 0.875rem;
+    margin: 0.875rem 0.125rem 0;
+  }
+  .key {
+    background: var(--cx-seal);
+    border-radius: 2px;
+    display: inline-block;
+    height: 10px;
+    margin-right: 0.375rem;
+    vertical-align: -1px;
+    width: 10px;
+  }
+  .relations tr.capsule td {
+    animation: seal 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .relations tr.capsule + tr.capsule td {
+    animation-delay: 60ms;
+  }
+  @keyframes seal {
+    from {
+      background: transparent;
+      box-shadow: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .relations tr.capsule td {
+      animation: none;
+    }
+  }
+
+  /* Sections */
+  .block {
+    border-top: 1px solid var(--cx-hairline);
+    padding: clamp(4rem, 8vw, 6rem) 0;
+  }
+  h2 {
+    font-size: clamp(1.625rem, 3.2vw, 2.25rem);
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    line-height: 1.12;
+    margin: 0 0 0.75rem;
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.3;
+    margin: 0 0 0.375rem;
+  }
+  .section-lede {
+    color: var(--cx-body);
+    margin: 0 0 2.5rem;
+    max-width: 40em;
+    text-wrap: pretty;
+  }
+  .text-link {
+    font-weight: 500;
+    text-decoration-color: var(--cx-hairline-strong);
+    text-underline-offset: 3px;
+  }
+  .text-link:hover {
+    text-decoration-color: var(--cx-seal);
+  }
+
+  .steps {
+    counter-reset: step;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .step {
+    border-top: 1px solid var(--cx-hairline);
+    counter-increment: step;
+    display: grid;
+    gap: 2.5rem;
+    grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+    padding: 2rem 0;
+  }
+  .step:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .step h3::before {
+    background: var(--cx-card);
+    border-radius: 4px;
+    box-shadow: var(--cx-ring);
+    color: var(--cx-body);
+    content: counter(step);
+    display: inline-grid;
+    font: 500 0.75rem var(--blume-font-mono);
+    height: 1.375rem;
+    margin-right: 0.625rem;
+    place-items: center;
+    vertical-align: 2px;
+    width: 1.375rem;
+  }
+  .step p {
+    color: var(--cx-body);
+    margin: 0 0 0.75rem;
+  }
+  .step :global(.prose) {
+    min-width: 0;
+  }
+  .step :global(figure) {
+    margin: 0 !important;
+  }
+  .proof {
+    border-top: 1px solid var(--cx-hairline);
+    color: var(--cx-body);
+    margin: 1rem 0 0;
+    padding-top: 1.5rem;
+  }
+
+  .film-row {
+    align-items: center;
+    display: grid;
+    gap: 3rem;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+  .film-copy p {
+    color: var(--cx-body);
+    margin: 0 0 1rem;
+  }
+  .film {
+    margin: 0;
+  }
+  /* The player renders in the browser only, so the frame holds the 16:9 space before it hydrates
+     and a noscript native video keeps the film playable without JavaScript. */
+  .film-frame {
+    aspect-ratio: 16 / 9;
+    background: var(--cx-inset) url("/media/capsuledb-launch-poster.jpg") center / cover;
+    border-radius: 8px;
+    box-shadow: var(--cx-lift);
+    overflow: hidden;
+  }
+  .film-frame :global(.film-player),
+  .film-frame :global(.film-player video),
+  .film-fallback {
+    display: block;
+    height: 100%;
+    width: 100%;
+  }
+  .plates {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 2.5rem;
+  }
+  .plates figure {
+    margin: 0;
+  }
+  .plates a {
+    border-radius: 6px;
+    box-shadow: var(--cx-ring);
+    display: block;
+    overflow: hidden;
+  }
+  .plates img {
+    display: block;
+    height: auto;
+    width: 100%;
+  }
+  .plates figcaption {
+    color: var(--cx-mute);
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+  }
+
+  .scroll {
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  .after-table {
+    margin: 1rem 0 0;
+  }
+  .ptable {
+    background: var(--cx-card);
+    border-collapse: collapse;
+    border-radius: 8px;
+    box-shadow: var(--cx-ring);
+    font-size: 0.9375rem;
+    overflow: hidden;
+    width: 100%;
+  }
+  .ptable th,
+  .ptable td {
+    border-bottom: 1px solid var(--cx-hairline);
+    padding: 0.8125rem 1rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  .ptable thead th {
+    background: var(--cx-inset);
+    color: var(--cx-mute);
+    font-size: 0.8125rem;
+    font-weight: 500;
+  }
+  .ptable tr:last-child td {
+    border-bottom: 0;
+  }
+  .ptable .note {
+    color: var(--cx-body);
+  }
+
+  .limits {
+    border-top: 1px solid var(--cx-hairline);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0;
+  }
+  .limits div {
+    border-bottom: 1px solid var(--cx-hairline);
+    padding: 1.375rem 1.5rem 1.375rem 0;
+  }
+  .limits div:nth-child(odd) {
+    border-right: 1px solid var(--cx-hairline);
+  }
+  .limits div:nth-child(even) {
+    padding-left: 1.5rem;
+  }
+  .limits dt {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 0.25rem;
+  }
+  .limits dd {
+    color: var(--cx-body);
+    margin: 0;
+  }
+
+  .guides {
+    background: var(--cx-hairline);
+    border-radius: 8px;
+    box-shadow: var(--cx-ring);
+    display: grid;
+    gap: 1px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    list-style: none;
+    margin: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+  .guides li {
+    background: var(--cx-card);
+    margin: 0;
+  }
+  .guides a {
+    display: block;
+    height: 100%;
+    padding: 1.25rem 1.375rem;
+    text-decoration: none;
+  }
+  .guides a:hover {
+    background: var(--cx-inset);
+  }
+  .guides strong {
+    display: block;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 0.25rem;
+  }
+  .guides span {
+    color: var(--cx-body);
+    font-size: 0.9375rem;
+  }
+
+  @media (max-width: 57.5rem) {
+    .artifact {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .pane + .pane {
+      border-left: 0;
+      border-top: 1px solid var(--cx-hairline);
+    }
+    .pane-db {
+      order: -1;
+    }
+    .film-row,
+    .step {
+      gap: 1.5rem;
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .guides,
+    .limits,
+    .plates {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .limits div:nth-child(odd) {
+      border-right: 0;
+    }
+    .limits div:nth-child(even) {
+      padding-left: 0;
+    }
+  }
+  @media (max-width: 32.5rem) {
+    .psql {
+      font-size: 0.71875rem;
+      padding: 0.875rem 0.75rem;
+    }
+    .rel td,
+    .rel th {
+      padding-left: 0.375rem;
+      padding-right: 0.375rem;
+    }
+    .relations td:first-child {
+      white-space: normal;
+    }
+    .cmd {
+      justify-content: space-between;
+      width: 100%;
+    }
+    .lede {
+      font-size: 1.0625rem;
+    }
+  }
+</style>

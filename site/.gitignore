@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.blume/
+.wrangler/
+# Copied from the repository by scripts/sync.ts on every build; edit the sources instead.
+content/(guides)/*.md
+content/(project)/*.md
+public/media/

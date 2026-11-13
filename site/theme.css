@@ -1,0 +1,80 @@
+/*
+ * CapsuleDB site tokens (see DESIGN.md): ink on near-white, a grey ladder, hairline rings, and one
+ * accent, the seal red-orange from the CapsuleDB mark. Blume derives its chrome from the
+ * --blume-* tokens; the landing and 404 pages read the --cx-* tokens directly.
+ */
+:root {
+  --blume-background: #fafaf9;
+  --blume-foreground: #171717;
+  --blume-muted: #f4f4f3;
+  --blume-muted-foreground: #4f4f4d;
+  --blume-border: #e7e7e5;
+  --blume-accent: #b23d1a;
+  --blume-accent-foreground: #ffffff;
+  --blume-action: #171717;
+  --blume-code-background: #f4f4f3;
+
+  --cx-canvas: #fafaf9;
+  --cx-card: #ffffff;
+  --cx-inset: #f4f4f3;
+  --cx-hairline: #e7e7e5;
+  --cx-hairline-strong: #d4d4d1;
+  --cx-ink: #171717;
+  --cx-body: #4f4f4d;
+  --cx-mute: #6e6e6b;
+  --cx-on-ink: #fafaf9;
+  --cx-seal: #e2502b;
+  --cx-seal-ink: #b23d1a;
+  --cx-seal-soft: #fdefe9;
+  --cx-ready: #1d6f45;
+  --cx-ready-soft: #e4f2ea;
+  --cx-ring: 0 0 0 1px rgba(0, 0, 0, 0.08);
+  --cx-lift:
+    0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04),
+    0 12px 24px -12px rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="dark"] {
+  --blume-background: #0c0c0c;
+  --blume-foreground: #ededec;
+  --blume-muted: #1a1a1a;
+  --blume-muted-foreground: #a3a3a1;
+  --blume-border: #262626;
+  --blume-accent: #ff8f6e;
+  --blume-accent-foreground: #0c0c0c;
+  --blume-action: #ededec;
+  --blume-code-background: #131313;
+
+  --cx-canvas: #0c0c0c;
+  --cx-card: #131313;
+  --cx-inset: #1a1a1a;
+  --cx-hairline: #262626;
+  --cx-hairline-strong: #383838;
+  --cx-ink: #ededec;
+  --cx-body: #a3a3a1;
+  --cx-mute: #8e8e8b;
+  --cx-on-ink: #0c0c0c;
+  --cx-seal: #ff6a42;
+  --cx-seal-ink: #ff8f6e;
+  --cx-seal-soft: #2b1610;
+  --cx-ready: #62c28d;
+  --cx-ready-soft: #10261a;
+  --cx-ring: 0 0 0 1px rgba(255, 255, 255, 0.09);
+  --cx-lift: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 12px 24px -12px rgba(0, 0, 0, 0.6);
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+}
+
+/* Code and schema text never ligate: `=>` stays two characters. */
+code,
+pre,
+kbd {
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "calt" 0,
+    "liga" 0;
+}

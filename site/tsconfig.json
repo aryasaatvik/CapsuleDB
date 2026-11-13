@@ -1,0 +1,15 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "target": "ES2023",
+    "types": ["bun"]
+  },
+  "include": [".blume/.astro/types.d.ts", ".blume/src/env.d.ts", "**/*"],
+  "exclude": ["dist", "node_modules", ".blume/.astro/content.d.ts"]
+}

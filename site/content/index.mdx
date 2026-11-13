@@ -1,0 +1,48 @@
+---
+title: CapsuleDB documentation
+description: How CapsuleDB splits database work between a package that owns private tables and the host app that owns the client, with a guide for each side.
+sidebar:
+  label: Overview
+seo:
+  title: CapsuleDB docs
+---
+
+CapsuleDB is an Effect library for packages that need their own database tables. A package
+declares a **capsule**: its tables, an append-only migration history, and an Effect service. A host
+application composes the capsules it trusts over the SQL client it already owns, and CapsuleDB
+applies each capsule's migrations before its service is available.
+
+Two parties share the work, and each has a guide:
+
+| Role             | Owns                                                                                                      | Guide                                        |
+| ---------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Package author   | the capsule ID, its tables and migrations, its service and errors                                         | [Capsule authors](/docs/capsule-authors)     |
+| Host application | the database client and its lifetime, which capsules to trust, when to prepare, destructive authorization | [Host applications](/docs/host-applications) |
+
+New here? The [quick start](/docs/quickstart) builds one capsule and runs it end to end.
+
+## Supported databases
+
+CapsuleDB renders one table declaration for PostgreSQL and for SQLite through Bun SQLite, libSQL and
+Cloudflare D1. Each runs under a provider profile with its own execution model; D1 runs bounded
+atomic batches instead of transactions. The [providers guide](/docs/providers) has the matrix.
+
+## Entry points
+
+| Import               | Contents                                                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capsuledb`          | every module below as a namespace (`Capsule`, `Registry`, `Pg`, …)                                                                                                                    |
+| `capsuledb/<Module>` | one module: `Capsule`, `D1`, `D1Artifact`, `Dialect`, `Emit`, `Error`, `Libsql`, `Manifest`, `Migration`, `Pg`, `Provider`, `Readiness`, `Registry`, `Schema`, `SqliteBun`, `Testing` |
+| `capsuledb/alchemy`  | the `Registry` Alchemy resource and `providers()`; needs the optional peers `alchemy` and `@effect/sql-pg`                                                                            |
+
+## What CapsuleDB does not do
+
+CapsuleDB is not an ORM, a deployment service, or a second connection lifecycle, and it does not
+sandbox trusted capsule SQL. [Design principles](/docs/design) explains each boundary, and
+[Migrations and recovery](/docs/migrations-and-recovery) covers what happens when preparation
+cannot proceed.
+
+## Project
+
+Releases are listed in the [changelog](/docs/changelog). Maintainers cut them with Tegami; the
+[release runbook](/docs/releasing) describes the gates.
