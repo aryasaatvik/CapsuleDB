@@ -59,8 +59,18 @@ and its errors.
 - Claimable: DomainKit publishes its PostgreSQL storage as a CapsuleDB capsule,
   [`@domainkit/capsuledb`](https://www.npmjs.com/package/@domainkit/capsuledb) (peer
   `capsuledb >=0.6.0 <0.7.0`, read 2026-11-13). Re-check the npm manifest before repeating it.
-- Samva and Executor appear only in `examples/` as integration sketches. Never claim either has
-  adopted CapsuleDB (`tools/check-docs.ts` enforces this for the guides).
+- Claimable: **Samva uses CapsuleDB in production.** Samva prepares DomainKit's PostgreSQL
+  capsule (`@domainkit/capsuledb`) at deploy time with `capsuledb/alchemy` and runs DomainKit's
+  storage on it. Evidence: Samva `main` (1a723778e7, read 2026-11-13) pins `capsuledb` 0.6.0 and
+  `@domainkit/capsuledb` 0.23.0 in the root `package.json`;
+  `apps/api/src/platform/infrastructure/data.ts` declares `CapsuleDB.Registry` from
+  `capsuledb/alchemy` with the `PgStorage.manifest()`; `apps/api/src/email/provisioning/domainkit.ts`
+  uses `PgStorage`. Samva's maintainer approved naming it on 2026-11-13. Say no more than this:
+  Samva uses CapsuleDB through DomainKit's capsule, not capsules of its own.
+- Executor appears only in `examples/` as an integration sketch. Never claim it has adopted
+  CapsuleDB. `examples/samva-shared-client.ts` is a sketch too, not Samva's code.
+- The guides state facts, not adoption: `tools/check-docs.ts` rejects adoption phrases there.
+  Adoption lines belong on the site, the README and social posts.
 - No invented users, quotes, download counts, benchmarks, or logos.
 
 ## Offer
