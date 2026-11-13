@@ -17,5 +17,6 @@
     "target": "ES2024",
     "types": ["bun"]
   },
-  "include": ["src", "tests", "tools", "scripts", "*.config.ts", "vitest.setup.ts"]
+  "include": ["src", "tests", "tools", "scripts", "*.config.ts", "vitest.setup.ts"],
+  "exclude": ["tests/artifact/quick-start.test.ts"]
 }

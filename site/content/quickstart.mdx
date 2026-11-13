@@ -1,0 +1,82 @@
+---
+title: Quick start
+description: Declare a capsule with one private table and a typed service, compose it over a host-owned Bun SQLite client, and run it end to end.
+sidebar:
+  label: Quick start
+seo:
+  title: CapsuleDB quick start
+---
+
+You will write a capsule the way a package author does, then compose it the way a host
+application does, and run both against an in-memory database. Every block on this page is a region
+of [`examples/quick-start.ts`](https://github.com/aryasaatvik/CapsuleDB/blob/main/examples/quick-start.ts),
+which CI typechecks and runs against the built package.
+
+## Prerequisites
+
+- Bun 1.4.4 or newer. The example uses Bun SQLite; the same capsule runs on PostgreSQL, libSQL and
+  Cloudflare D1 with a different [provider profile](/docs/providers).
+- Effect 4.1.2 or newer.
+
+## Install
+
+```package-install
+npm i capsuledb effect @effect/sql-sqlite-bun
+```
+
+## Import
+
+Start a file, `visits.ts`. The package side imports CapsuleDB's builders; the host side imports the
+Bun SQLite client it owns.
+
+<Snippet file="examples/quick-start.ts" region="imports" />
+
+## Declare the table
+
+The package declares its table once. CapsuleDB renders the DDL for whichever dialect the host runs.
+This capsule prefixes its table with the namespace CapsuleDB derives from its ID, so its tables are
+easy to spot in a shared database.
+
+<Snippet file="examples/quick-start.ts" region="table" />
+
+## Write the service
+
+The capsule's public surface is an Effect service. Its SQL and row shapes stay inside the package,
+and the only failure the host sees is the capsule's own error.
+
+<Snippet file="examples/quick-start.ts" region="service" />
+
+## Export the capsule
+
+`Capsule.make` bundles the table, an append-only migration history and the service layer into one
+module constant. It is pure, so a host can import it without running anything.
+
+<Snippet file="examples/quick-start.ts" region="capsule" />
+
+## Compose it in the host
+
+The host lists the capsules it trusts and picks the provider profile that matches its client.
+`Registry.layer` still requires the host's `SqlClient`; CapsuleDB never opens or closes it.
+
+<Snippet file="examples/quick-start.ts" region="compose" />
+
+## Run it
+
+Building the layer prepares the registry first: it creates CapsuleDB's ledger and metadata tables,
+applies the capsule's pending migration, and only then provides `Visits`.
+
+<Snippet file="examples/quick-start.ts" region="run" />
+
+Run it with `bun visits.ts`. It prints `/docs has 2 visits`: `main` returns `2`, the second visit
+to `/docs`. The database now holds
+`capsule_example_2e_visits` beside `capsuledb_registry_ledger` and `capsuledb_registry_metadata`.
+Running it again against the same database reads the ledger once, finds it current, and applies
+nothing.
+
+## Next steps
+
+- [Capsule authors](/docs/capsule-authors): IDs, migration rules, testing a capsule with the exported kit.
+- [Host applications](/docs/host-applications): readiness, emitting SQL for an existing migration
+  pipeline, and preparing at deploy time on serverless hosts.
+- [Migrations and recovery](/docs/migrations-and-recovery): what to do when preparation fails.
+- [The docs overview](/docs): which guide covers which side of the boundary, and every entry point.

@@ -1,15 +1,26 @@
 {
   "name": "capsuledb",
   "version": "0.6.0",
-  "description": "Effect-native private database capsules and migrations",
+  "description": "Let an Effect library own its tables, typed queries and migrations inside the host app's existing database (PostgreSQL, SQLite, libSQL, Cloudflare D1).",
   "keywords": [
+    "bun-sqlite",
+    "cloudflare-d1",
+    "d1",
     "database",
     "effect",
+    "effect-ts",
+    "embedded-migrations",
+    "libsql",
     "migrations",
+    "plugin",
+    "postgres",
+    "postgresql",
+    "schema-migrations",
+    "sql",
     "sqlite",
     "typescript"
   ],
-  "homepage": "https://github.com/aryasaatvik/CapsuleDB#readme",
+  "homepage": "https://capsuledb.arya.sh",
   "bugs": {
     "url": "https://github.com/aryasaatvik/CapsuleDB/issues"
   },

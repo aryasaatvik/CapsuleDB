@@ -1,16 +1,34 @@
 # CapsuleDB
 
-CapsuleDB is an Effect-native library for packages that own private database
-tables, typed persistence operations, and forward migrations inside a host
-application's database.
+**Ship persistence with your package. Use the database the app already owns.**
+
+CapsuleDB is an open-source TypeScript library that lets an Effect package own
+its tables, typed queries and migrations inside the host application's existing
+database, over the SQL client the host already owns. It supports PostgreSQL,
+Bun SQLite, libSQL and Cloudflare D1.
 
 The host supplies the Effect SQL client and owns its connection lifecycle.
 CapsuleDB keeps the capsule's physical schema and persistence implementation
 private, while exposing explicit preparation and domain-oriented services.
 
+**Docs and guides: [capsuledb.arya.sh](https://capsuledb.arya.sh)** ·
+[Quick start](https://capsuledb.arya.sh/docs/quickstart) ·
+[npm](https://www.npmjs.com/package/capsuledb)
+
 [![CapsuleDB launch film poster: ship persistence with your package, use the database the app already owns](media/exports/capsuledb-launch-poster.jpg)](media/exports/capsuledb-launch.mp4)
 
 Watch the [60-second film](media/exports/capsuledb-launch.mp4) (silent; [transcript](media/launches/introducing-capsuledb/TRANSCRIPT.md)).
+
+## Install
+
+```sh
+npm i capsuledb effect
+```
+
+Add the Effect SQL driver your app already uses (`@effect/sql-pg`,
+`@effect/sql-sqlite-bun`, `@effect/sql-libsql`, or `@effect/sql-d1`).
+[`examples/quick-start.ts`](examples/quick-start.ts) is a complete program that
+CI typechecks and runs.
 
 ## Compatibility
 

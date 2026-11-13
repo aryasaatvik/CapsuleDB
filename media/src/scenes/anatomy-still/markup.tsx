@@ -1,20 +1,16 @@
 import type { ReactNode } from "react";
 import type { SceneMarkup } from "../../scene";
-import { CapsuleShape, Header, Scene } from "../parts";
+import { Header, Scene, TableName, Window } from "../parts";
 import { referenceTables, tokenOperations } from "../source";
 
-const mono = { fontFamily: "var(--cx-mono)" } as const;
+const TOP = 340;
+const HEIGHT = 440;
 
 function Fact({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div style={{ flex: "1 1 0", borderTop: "3px solid var(--cx-ink)", paddingTop: 20 }}>
-      <span className="cx-kicker cx-kicker--seal">{title}</span>
-      <p
-        className="cx-h"
-        style={{ marginTop: 14, fontSize: 30, fontWeight: 540, lineHeight: 1.28 }}
-      >
-        {children}
-      </p>
+    <div className="cx-fact">
+      <span className="cx-fact-title">{title}</span>
+      <div className="cx-fact-text">{children}</div>
     </div>
   );
 }
@@ -28,122 +24,144 @@ export const anatomyStill: SceneMarkup = {
       <h2 className="cx-h cx-abs" style={{ left: 96, top: 150, fontSize: 76 }}>
         One value carries a package's persistence.
       </h2>
-      <p className="cx-sub cx-abs" style={{ left: 96, top: 248, fontSize: 30 }}>
-        <span className="cx-mono" style={{ fontSize: 27, color: "var(--cx-ink)" }}>
-          Capsule.make
-        </span>{" "}
-        exports tables, append-only migrations, and a typed Effect layer as one constant.
+      <p className="cx-sub cx-abs" style={{ left: 96, top: 254, fontSize: 30 }}>
+        <span className="cx-ic">Capsule.make</span> exports tables, append-only migrations, and a
+        typed Effect layer as one constant.
       </p>
-      <CapsuleShape
-        width={1728}
-        height={430}
-        style={{ left: 96, top: 330 }}
-        compartments={[
-          {
-            label: "Tables",
-            a: "tables",
-            grow: 1.25,
-            body: (
-              <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 6 }}>
-                {referenceTables.map((table) => (
-                  <div key={table.name}>
-                    <div style={{ ...mono, fontSize: 22, fontWeight: 700 }}>{table.name}</div>
-                    <div
-                      style={{
-                        ...mono,
-                        fontSize: 20,
-                        color: "var(--cx-soft)",
-                        marginTop: 6,
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {table.columns.join("  ")}
-                    </div>
-                  </div>
-                ))}
+
+      <Window
+        title="Tables"
+        aside="Schema.table"
+        style={{ left: 96, top: TOP, width: 640, height: HEIGHT }}
+      >
+        <div className="cx-list" style={{ fontSize: 20 }}>
+          {referenceTables.map((table) => (
+            <div key={table.name}>
+              <div
+                className="cx-list-row cx-list-row--capsule"
+                style={{ height: 50, gridTemplateColumns: "1fr", fontWeight: 600 }}
+              >
+                <TableName name={table.name} />
               </div>
-            ),
-          },
-          {
-            label: "Migrations",
-            a: "migrations",
-            grow: 0.95,
-            body: (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 6 }}>
-                {[
-                  [1, "create-tokens", "createTable(tokens)"],
-                  [2, "add-token-audit", "createTable(tokenAudit)"],
-                ].map(([id, name, step]) => (
-                  <div
-                    key={id}
-                    className="cx-row cx-row--capsule"
-                    style={{
-                      height: 76,
-                      flexDirection: "column",
-                      alignItems: "flex-start",
-                      justifyContent: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <span style={{ fontSize: 22, fontWeight: 700 }}>
-                      {id} · {name}
-                    </span>
-                    <span style={{ fontSize: 19, color: "var(--cx-soft)" }}>additive · {step}</span>
-                  </div>
-                ))}
+              {table.columns.map((column) => (
                 <div
-                  className="cx-row"
+                  key={column}
+                  className="cx-list-row"
                   style={{
-                    height: 50,
-                    border: "2px dashed var(--cx-faint)",
-                    color: "var(--cx-soft)",
-                    fontSize: 20,
+                    height: 36,
+                    gridTemplateColumns: "1fr auto",
+                    paddingLeft: 48,
+                    borderBottom: "1px solid var(--cx-hairline)",
                   }}
                 >
-                  3 · appended next
+                  <span>{column.replace(/\?$/, "")}</span>
+                  <span className="cx-mute">{column.endsWith("?") ? "nullable" : ""}</span>
                 </div>
-              </div>
-            ),
-          },
-          {
-            label: "Service",
-            a: "service",
-            grow: 1.1,
-            body: (
-              <div style={{ marginTop: 6 }}>
-                <div style={{ ...mono, fontSize: 22, fontWeight: 700 }}>OneTimeTokens</div>
-                <div
-                  style={{
-                    ...mono,
-                    fontSize: 19,
-                    color: "var(--cx-soft)",
-                    marginTop: 6,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  Layer&lt;OneTimeTokens, never, SqlClient&gt;
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16 }}>
-                  {tokenOperations.map((operation) => (
-                    <div key={operation.name} style={{ ...mono, fontSize: 21 }}>
-                      <b>{operation.name}</b>
-                      <span style={{ color: "var(--cx-soft)" }}>({operation.parameter}) → </span>
-                      {operation.returns}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ),
-          },
-        ]}
-      />
-      <div className="cx-abs" style={{ left: 96, right: 96, top: 812, display: "flex", gap: 56 }}>
+              ))}
+            </div>
+          ))}
+        </div>
+      </Window>
+
+      <Window
+        title="Migrations"
+        aside="append-only"
+        style={{ left: 760, top: TOP, width: 500, height: HEIGHT }}
+      >
+        <div style={{ padding: "8px 0" }}>
+          {[
+            [1, "create-tokens", "createTable(tokens)"],
+            [2, "add-token-audit", "createTable(tokenAudit)"],
+          ].map(([id, name, step]) => (
+            <div
+              key={id}
+              className="cx-mono"
+              style={{
+                padding: "18px 28px",
+                borderBottom: "1px solid var(--cx-hairline)",
+                display: "grid",
+                gridTemplateColumns: "40px 1fr",
+                rowGap: 6,
+              }}
+            >
+              <span className="cx-mute" style={{ fontSize: 22 }}>
+                {id}
+              </span>
+              <span style={{ fontSize: 22, fontWeight: 600 }}>{name}</span>
+              <span />
+              <span style={{ fontSize: 19, color: "var(--cx-body)" }}>additive · {step}</span>
+            </div>
+          ))}
+          <div
+            className="cx-mono cx-mute"
+            style={{
+              margin: "16px 20px 0",
+              height: 52,
+              padding: "0 7px",
+              border: "1px dashed var(--cx-hairline-strong)",
+              borderRadius: 6,
+              display: "grid",
+              gridTemplateColumns: "40px 1fr",
+              alignItems: "center",
+              fontSize: 20,
+            }}
+          >
+            <span>3</span>
+            <span>appended next</span>
+          </div>
+        </div>
+      </Window>
+
+      <Window
+        title="Service"
+        aside="Layer"
+        style={{ left: 1284, top: TOP, width: 540, height: HEIGHT }}
+      >
+        <div style={{ padding: "22px 28px 12px" }}>
+          <div className="cx-mono" style={{ fontSize: 24, fontWeight: 600 }}>
+            OneTimeTokens
+          </div>
+          <div
+            className="cx-mono"
+            style={{ fontSize: 18, color: "var(--cx-body)", marginTop: 8, whiteSpace: "nowrap" }}
+          >
+            Layer&lt;OneTimeTokens, never, SqlClient&gt;
+          </div>
+        </div>
+        <div
+          className="cx-list"
+          style={{ fontSize: 20, borderTop: "1px solid var(--cx-hairline)" }}
+        >
+          <div
+            className="cx-list-head"
+            style={{ gridTemplateColumns: "1fr auto", fontFamily: "var(--cx-sans)", height: 42 }}
+          >
+            <span>Operation</span>
+            <span>Returns</span>
+          </div>
+          {tokenOperations.map((operation) => (
+            <div
+              key={operation.name}
+              className="cx-list-row"
+              style={{ gridTemplateColumns: "1fr auto", height: 48 }}
+            >
+              <span>
+                <b style={{ color: "var(--cx-ink)", fontWeight: 600 }}>{operation.name}</b>
+                <span className="cx-mute">({operation.parameter})</span>
+              </span>
+              <span style={{ color: "var(--cx-ink)" }}>{operation.returns}</span>
+            </div>
+          ))}
+        </div>
+      </Window>
+
+      <div className="cx-abs" style={{ left: 96, right: 96, top: 828, display: "flex", gap: 56 }}>
         <Fact title="Identity">
-          <span className="cx-mono" style={{ display: "block", fontSize: 24 }}>
-            reference.tokens →
+          <span className="cx-mono" style={{ display: "block", fontSize: 22, lineHeight: 1.5 }}>
+            <span className="cx-seal-ink">reference.tokens</span> <span className="cx-mute">→</span>
           </span>
-          <span className="cx-mono" style={{ display: "block", fontSize: 24 }}>
-            capsule_reference_2e_tokens
+          <span className="cx-mono" style={{ display: "block", fontSize: 22, lineHeight: 1.5 }}>
+            <span style={{ color: "var(--cx-ink)" }}>capsule_reference_2e_tokens</span>
           </span>
           Derived; hosts cannot rename it.
         </Fact>
@@ -154,8 +172,8 @@ export const anatomyStill: SceneMarkup = {
           The host calls the service. Queries and row shapes stay inside the package.
         </Fact>
       </div>
-      <p className="cx-note cx-abs" style={{ left: 96, top: 1026, margin: 0, fontSize: 18 }}>
-        From examples/reference-token/Capsule.ts and OneTimeTokens.ts · CapsuleDB 0.5
+      <p className="cx-note cx-abs" style={{ left: 96, top: 1028, margin: 0, fontSize: 18 }}>
+        From examples/reference-token/Capsule.ts and OneTimeTokens.ts
       </p>
     </Scene>
   ),

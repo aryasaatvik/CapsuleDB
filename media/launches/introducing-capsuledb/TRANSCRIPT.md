@@ -46,7 +46,7 @@ export const capsule = Capsule.make({
 });
 ```
 
-Each part highlights while a capsule diagram fills the matching compartment:
+Each part highlights while the matching row of a listing of the capsule's parts fills:
 
 - Tables: declared once with `Schema.table`. Rendered for PostgreSQL and SQLite.
 - Migrations: append-only and numbered from 1. Editing applied history reads as drift.
@@ -72,10 +72,11 @@ const application = Effect.service(CapsuleService).pipe(
 );
 ```
 
-A host application frame holds `Registry.layer` with the `reference.tokens` capsule (explicit, no
-discovery) and the `SqlClient`, opened, shared, and closed by the host. The host database holds the
-app's own tables, `capsule_reference_2e_tokens`, `capsule_reference_2e_token_audit`,
-`capsuledb_registry_ledger`, and `capsuledb_registry_metadata`.
+A host application window holds `Registry.layer` with the `reference.tokens` capsule (explicit, no
+discovery) and the `SqlClient`, opened, shared, and closed by the host. A `\dt` listing of the host
+database shows each table and its owner: the app's own tables (app),
+`capsule_reference_2e_tokens` and `capsule_reference_2e_token_audit` (reference.tokens), and
+`capsuledb_registry_ledger` and `capsuledb_registry_metadata` (capsuledb).
 
 Capsules are trusted package code. CapsuleDB prevents namespace collisions; it does not sandbox
 their SQL.
@@ -111,4 +112,4 @@ Operations: `issue(expiresAt)`, `get(token)`, `consume(token)`, `revoke(token)`,
 
 ## 0:55 Get started
 
-CapsuleDB. `bun add capsuledb`. github.com/aryasaatvik/CapsuleDB. MIT license. Effect 4. Pre-1.0.
+CapsuleDB. `npm i capsuledb effect`. github.com/aryasaatvik/CapsuleDB. MIT license. Effect 4. Pre-1.0.
